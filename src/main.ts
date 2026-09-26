@@ -30,6 +30,26 @@ let chargeFrame = 0;
 let suppressFireClick = false;
 const CHARGE_MS = 2400;
 const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
+const bgm = new Audio('/assets/sound/BGM.mp3');
+const fireSound = new Audio('/assets/sound/FIRE.mp3');
+const itemSound = new Audio('/assets/sound/USE_ITEM.mp3');
+bgm.loop = true;
+bgm.volume = 0.35;
+fireSound.volume = 0.7;
+itemSound.volume = 0.7;
+let soundEnabled = true;
+let audioWantsStart = false;
+
+function startBgm(): void {
+  if (soundEnabled && audioWantsStart && bgm.paused) void bgm.play().catch(() => { /* Retry on the next user gesture. */ });
+}
+function playEffect(sound: HTMLAudioElement): void {
+  if (!soundEnabled) return;
+  try { sound.currentTime = 0; } catch { /* The file may still be loading. */ }
+  void sound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
+}
+document.addEventListener('pointerdown', startBgm);
+document.addEventListener('keydown', startBgm);
 
 function send(action: ClientAction): void {
   if (socket.readyState !== WebSocket.OPEN) { toast('กำลังเชื่อมต่อเซิร์ฟเวอร์'); return; }
@@ -59,10 +79,12 @@ function enterRoom(create: boolean): void {
   const name = userName();
   if (!name) return;
   $('landing-error').textContent = '';
-  if (create) send({ type: 'create', name, mobile: selectedMobile });
+  if (create) { audioWantsStart = true; startBgm(); send({ type: 'create', name, mobile: selectedMobile }); }
   else {
     const code = (($('room-code') as HTMLInputElement).value || '').trim().toUpperCase();
     if (code.length !== 6) { $('landing-error').textContent = 'รหัสห้องมี 6 ตัว'; return; }
+    audioWantsStart = true;
+    startBgm();
     send({ type: 'join', code, name, mobile: selectedMobile });
   }
 }
@@ -135,6 +157,10 @@ fireButton.addEventListener('click', event => {
   if (suppressFireClick) { event.preventDefault(); return; }
   if (event.detail === 0 && canControl()) { setPower(20); fireChargedShot(); }
 });
+for (const eventName of ['contextmenu', 'selectstart', 'dragstart']) {
+  fireButton.addEventListener(eventName, event => event.preventDefault());
+}
+fireButton.addEventListener('touchstart', event => event.preventDefault(), { passive: false });
 $('item-double').addEventListener('click', () => send({ type: 'item', item: 'double' }));
 $('item-repair').addEventListener('click', () => send({ type: 'item', item: 'repair' }));
 $('item-teleport').addEventListener('click', () => { setTeleportMode(!teleportMode); if (teleportMode) toast('เล็งมุม กดยิงค้างเพื่อเพิ่มพลัง แล้วปล่อยเพื่อย้าย'); });
@@ -170,6 +196,7 @@ const settingsToggle = $('settings-toggle') as HTMLButtonElement;
 const settingsPopup = $('settings-popup');
 const touchToggle = $('touch-controls-toggle') as HTMLInputElement;
 const touchDpad = $('touch-dpad');
+const soundToggle = $('sound-toggle') as HTMLInputElement;
 function closeSettings(): void {
   settingsPopup.classList.add('hidden');
   settingsToggle.setAttribute('aria-expanded', 'false');
@@ -189,6 +216,16 @@ settingsToggle.addEventListener('click', () => {
 });
 $('settings-close').addEventListener('click', closeSettings);
 touchToggle.addEventListener('change', () => setTouchControls(touchToggle.checked));
+function setSoundEnabled(enabled: boolean): void {
+  soundEnabled = enabled;
+  soundToggle.checked = enabled;
+  if (enabled) startBgm();
+  else { bgm.pause(); fireSound.pause(); itemSound.pause(); }
+  try { localStorage.setItem('skyward-sound', enabled ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
+}
+try { setSoundEnabled(localStorage.getItem('skyward-sound') !== 'off'); }
+catch { setSoundEnabled(true); }
+soundToggle.addEventListener('change', () => setSoundEnabled(soundToggle.checked));
 document.addEventListener('pointerdown', event => {
   if (!settingsPopup.classList.contains('hidden') && !settingsPopup.contains(event.target as Node) && !settingsToggle.contains(event.target as Node)) closeSettings();
 });
@@ -325,7 +362,8 @@ socket.addEventListener('message', event => {
       playerId = message.id;
       history.replaceState(null, '', `/?room=${message.code}`);
     } else if (message.type === 'state') render(message.state);
-    else if (message.type === 'shot') scene.showShot(message.shot);
+    else if (message.type === 'shot') { scene.showShot(message.shot); if (message.shot.kind === 'damage') playEffect(fireSound); }
+    else if (message.type === 'item-used') playEffect(itemSound);
     else if (message.type === 'error') { toast(message.message); $('landing-error').textContent = message.message; }
   } catch { toast('อ่านข้อมูลจากเซิร์ฟเวอร์ไม่สำเร็จ'); }
 });

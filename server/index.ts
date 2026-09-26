@@ -99,10 +99,12 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (action.item === 'teleport') {
       movement.delete(state.code);
       const shot = fireTeleport(state, current.id, Number(action.angle), Number(action.power), Date.now());
+      broadcast(state.code, { type: 'item-used', item: 'teleport' });
       broadcast(state.code, { type: 'shot', shot });
     } else {
       if (action.item === 'repair') movement.delete(state.code);
       useItem(state, current.id, action.item, Date.now());
+      broadcast(state.code, { type: 'item-used', item: action.item });
     }
   } else {
     throw new Error('คำสั่งไม่ถูกต้อง');
@@ -167,7 +169,7 @@ setInterval(() => {
   }
 }, 50);
 
-const mime: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const mime: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg' };
 const server = createServer(async (req, res) => {
   if (req.url === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: true, rooms: rooms.size })); return; }
   const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
