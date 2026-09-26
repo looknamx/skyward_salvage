@@ -233,8 +233,10 @@ function setTouchControls(visible: boolean): void {
   if (!visible) touchReleaseHandlers.forEach(release => release());
   try { localStorage.setItem('skyward-touch-controls', visible ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
 }
-try { setTouchControls(localStorage.getItem('skyward-touch-controls') === 'on'); }
-catch { setTouchControls(false); }
+try {
+  const savedTouchControls = localStorage.getItem('skyward-touch-controls');
+  setTouchControls(savedTouchControls === null ? matchMedia('(pointer: coarse)').matches : savedTouchControls === 'on');
+} catch { setTouchControls(matchMedia('(pointer: coarse)').matches); }
 settingsToggle.addEventListener('click', () => {
   const opening = settingsPopup.classList.contains('hidden');
   settingsPopup.classList.toggle('hidden', !opening);
