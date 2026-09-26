@@ -33,12 +33,19 @@ const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}
 const bgm = new Audio('/assets/sound/BGM.mp3');
 const fireSound = new Audio('/assets/sound/FIRE.mp3');
 const itemSound = new Audio('/assets/sound/USE_ITEM.mp3');
+const movementSound = new Audio('/assets/sound/MOVEMENT.mp3');
+const hitSound = new Audio('/assets/sound/HIT.mp3');
 bgm.loop = true;
+movementSound.loop = true;
 bgm.volume = 0.35;
 fireSound.volume = 0.7;
 itemSound.volume = 0.7;
+movementSound.volume = 0.45;
+hitSound.volume = 0.7;
 let soundEnabled = true;
 let audioWantsStart = false;
+let movementStopTimer = 0;
+let hitTimer = 0;
 
 function startBgm(): void {
   if (soundEnabled && audioWantsStart && bgm.paused) void bgm.play().catch(() => { /* Retry on the next user gesture. */ });
@@ -47,6 +54,25 @@ function playEffect(sound: HTMLAudioElement): void {
   if (!soundEnabled) return;
   try { sound.currentTime = 0; } catch { /* The file may still be loading. */ }
   void sound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
+}
+function stopMovementSound(): void {
+  clearTimeout(movementStopTimer);
+  movementStopTimer = 0;
+  movementSound.pause();
+  try { movementSound.currentTime = 0; } catch { /* The file may still be loading. */ }
+}
+function updateMovementSound(previous: GameState | null, current: GameState): void {
+  if (!soundEnabled || current.phase !== 'playing' || previous?.phase !== 'playing' || previous.activeId !== current.activeId || !current.activeId) {
+    stopMovementSound();
+    return;
+  }
+  const before = previous.players.find(player => player.id === current.activeId);
+  const after = current.players.find(player => player.id === current.activeId);
+  const distance = before && after ? Math.abs(after.x - before.x) : 0;
+  if (distance < 0.1 || distance > 32) return;
+  if (movementSound.paused) void movementSound.play().catch(() => { /* Retry when more movement arrives. */ });
+  clearTimeout(movementStopTimer);
+  movementStopTimer = window.setTimeout(stopMovementSound, 300);
 }
 document.addEventListener('pointerdown', startBgm);
 document.addEventListener('keydown', startBgm);
@@ -220,7 +246,11 @@ function setSoundEnabled(enabled: boolean): void {
   soundEnabled = enabled;
   soundToggle.checked = enabled;
   if (enabled) startBgm();
-  else { bgm.pause(); fireSound.pause(); itemSound.pause(); }
+  else {
+    bgm.pause(); fireSound.pause(); itemSound.pause(); hitSound.pause();
+    clearTimeout(hitTimer);
+    stopMovementSound();
+  }
   try { localStorage.setItem('skyward-sound', enabled ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
 }
 try { setSoundEnabled(localStorage.getItem('skyward-sound') !== 'off'); }
@@ -288,6 +318,7 @@ window.addEventListener('keyup', event => {
 window.addEventListener('blur', () => { releaseMovement(); endCharge(false); });
 
 function render(state: GameState): void {
+  updateMovementSound(gameState, state);
   gameState = state;
   scene.setSnapshot(state, playerId);
   $('landing').classList.add('hidden');
@@ -363,10 +394,11 @@ socket.addEventListener('message', event => {
       history.replaceState(null, '', `/?room=${message.code}`);
     } else if (message.type === 'state') render(message.state);
     else if (message.type === 'shot') { scene.showShot(message.shot); if (message.shot.kind === 'damage') playEffect(fireSound); }
+    else if (message.type === 'hit') { clearTimeout(hitTimer); hitTimer = window.setTimeout(() => playEffect(hitSound), 820); }
     else if (message.type === 'item-used') playEffect(itemSound);
     else if (message.type === 'error') { toast(message.message); $('landing-error').textContent = message.message; }
   } catch { toast('อ่านข้อมูลจากเซิร์ฟเวอร์ไม่สำเร็จ'); }
 });
-socket.addEventListener('close', () => toast('การเชื่อมต่อขาด กรุณารีเฟรชหน้าเว็บ'));
+socket.addEventListener('close', () => { stopMovementSound(); bgm.pause(); toast('การเชื่อมต่อขาด กรุณารีเฟรชหน้าเว็บ'); });
 const roomFromLink = new URLSearchParams(location.search).get('room');
 if (roomFromLink) ($('room-code') as HTMLInputElement).value = roomFromLink.toUpperCase();

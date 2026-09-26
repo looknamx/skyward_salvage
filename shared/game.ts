@@ -56,6 +56,7 @@ export type ServerEvent =
   | { type: 'welcome'; id: string; code: string }
   | { type: 'state'; state: GameState }
   | { type: 'shot'; shot: ShotResult }
+  | { type: 'hit' }
   | { type: 'item-used'; item: ItemKind }
   | { type: 'error'; message: string };
 

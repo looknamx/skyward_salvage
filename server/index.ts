@@ -93,8 +93,10 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     turnPlayer(state, current.id);
   } else if (action.type === 'fire') {
     movement.delete(state.code);
+    const hpBefore = new Map(state.players.map(target => [target.id, target.hp]));
     const shot = fireShot(state, current.id, Number(action.angle), Number(action.power), Date.now());
     broadcast(state.code, { type: 'shot', shot });
+    if (state.players.some(target => target.hp < (hpBefore.get(target.id) ?? target.hp))) broadcast(state.code, { type: 'hit' });
   } else if (action.type === 'item') {
     if (action.item === 'teleport') {
       movement.delete(state.code);
