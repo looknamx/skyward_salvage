@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#202943" />
+    <title>Skyward Salvage</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="game" aria-label="สนามต่อสู้"></div>
+      <section id="landing" class="overlay">
+        <div class="landing-card">
+          <p class="eyebrow">เกมยิงผลัดกันเล่น • 2–4 คน</p>
+          <h1>SKYWARD<br><span>SALVAGE</span></h1>
+          <p class="intro">เล็งข้ามหมู่เกาะลอยฟ้า อ่านทิศลม และยิงให้แม่นก่อนหมดเทิร์น</p>
+          <label>ชื่อผู้เล่น <input id="name" maxlength="18" placeholder="ชื่อของคุณ" autocomplete="nickname" /></label>
+          <div class="mobile-picker" role="group" aria-label="เลือก Mobile">
+            <button class="mobile-option selected" data-mobile="loom"><b>LOOM</b><small>ลูกยิงแม่น</small></button>
+            <button class="mobile-option" data-mobile="manta"><b>MANTA</b><small>กระสุนคู่</small></button>
+            <button class="mobile-option" data-mobile="borer"><b>BORER</b><small>ระเบิดหนัก</small></button>
+          </div>
+          <div class="room-actions">
+            <button id="create" class="primary">สร้างห้อง</button>
+            <div class="join-row"><input id="room-code" maxlength="6" placeholder="รหัสห้อง" aria-label="รหัสห้อง" /><button id="join">เข้าห้อง</button></div>
+          </div>
+          <p id="landing-error" class="error" role="alert"></p>
+        </div>
+      </section>
+      <section id="lobby" class="overlay hidden">
+        <div class="lobby-card">
+          <p class="eyebrow">ห้องส่วนตัว</p>
+          <h2>เตรียมออกเดินทาง</h2>
+          <div class="invite">รหัสห้อง <strong id="lobby-code"></strong> <button id="copy-link">คัดลอกลิงก์</button></div>
+          <div id="lobby-players" class="lobby-players"></div>
+          <p class="hint">เลือก Mobile บนหน้าก่อนเข้าห้องได้ • เจ้าของห้องเริ่มเมื่อมีผู้เล่น 2–4 คน</p>
+          <button id="start" class="primary" disabled>เริ่มเกม</button>
+          <p id="lobby-status" class="status"></p>
+        </div>
+      </section>
+      <div id="hud" class="hidden">
+        <div id="player-strip"></div>
+        <div class="weather-panel"><span id="wind">WIND → 0</span><span id="turn">TURN 01</span><strong id="timer">30s</strong></div>
+        <div id="turn-banner"></div>
+        <div id="control-hint">← → เดิน &nbsp;·&nbsp; ↑ ↓ มุม 10–80° ด้านหน้ารถ &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
+        <div id="controls">
+          <div class="aim-panel">
+            <div class="aim-dial"><span class="dial-needle" id="dial-needle"></span><output id="angle-value">45°</output></div>
+            <div class="aim-sliders">
+              <label>ANGLE <input id="angle" type="range" min="10" max="80" value="45" /></label>
+              <label>POWER <output id="power-value">20%</output><progress id="power" class="power-meter" max="100" value="20" aria-label="พลังยิง"></progress></label>
+            </div>
+          </div>
+          <div class="item-panel">
+            <button id="item-double" title="เพิ่มดาเมจของนัดนี้ 2 เท่า"><img src="/assets/ui/double.png" alt="" /><span>×2</span><small id="count-double">1</small></button>
+            <button id="item-repair" title="ฟื้นฟู 28 HP และจบเทิร์น"><img src="/assets/ui/repair.png" alt="" /><span>ซ่อม</span><small id="count-repair">1</small></button>
+            <button id="item-teleport" title="เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
+          </div>
+          <button id="turn-mobile" class="turn-mobile" title="กลับหน้ารถโดยไม่ต้องเดิน (R)">↔ กลับรถ</button>
+          <button id="fire" class="fire-button" title="กดค้างเพื่อเพิ่มพลัง ปล่อยเพื่อยิง">FIRE</button>
+        </div>
+      </div>
+      <section id="result" class="overlay hidden"><div class="result-card"><p class="eyebrow">จบรอบ</p><h2 id="result-title"></h2><p>สร้างห้องใหม่เพื่อเล่นอีกครั้ง</p><button id="again" class="primary">กลับหน้าหลัก</button></div></section>
+      <div id="toast" role="status"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
