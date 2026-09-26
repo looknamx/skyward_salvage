@@ -40,7 +40,17 @@
       </section>
       <div id="hud" class="hidden">
         <div id="player-strip"></div>
-        <div class="weather-panel"><span id="wind">WIND → 0</span><span id="turn">TURN 01</span><strong id="timer">30s</strong></div>
+        <div class="weather-panel"><span id="wind">WIND → 0</span><span id="turn">TURN 01</span><strong id="timer">30s</strong><button id="settings-toggle" class="settings-toggle" type="button" aria-label="ตั้งค่า" aria-controls="settings-popup" aria-expanded="false" title="ตั้งค่า">⚙</button></div>
+        <div id="settings-popup" class="settings-popup hidden" role="dialog" aria-labelledby="settings-title">
+          <div class="settings-heading"><strong id="settings-title">ตั้งค่า</strong><button id="settings-close" type="button" aria-label="ปิดการตั้งค่า">×</button></div>
+          <label class="settings-option" for="touch-controls-toggle"><span>ปุ่มลูกศรบนหน้าจอ<small>เดินและปรับมุมสำหรับมือถือ</small></span><input id="touch-controls-toggle" type="checkbox" /></label>
+        </div>
+        <div id="touch-dpad" class="touch-dpad hidden" role="group" aria-label="ปุ่มควบคุมบนหน้าจอ">
+          <button class="dpad-up" type="button" data-direction="up" aria-label="เพิ่มมุมยิง">▲</button>
+          <button class="dpad-left" type="button" data-direction="left" aria-label="เดินซ้าย">◀</button>
+          <button class="dpad-right" type="button" data-direction="right" aria-label="เดินขวา">▶</button>
+          <button class="dpad-down" type="button" data-direction="down" aria-label="ลดมุมยิง">▼</button>
+        </div>
         <div id="turn-banner"></div>
         <div id="control-hint">← → เดิน &nbsp;·&nbsp; ↑ ↓ มุม 10–80° ด้านหน้ารถ &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
         <div id="controls">
@@ -56,7 +66,6 @@
             <button id="item-repair" title="ฟื้นฟู 28 HP และจบเทิร์น"><img src="/assets/ui/repair.png" alt="" /><span>ซ่อม</span><small id="count-repair">1</small></button>
             <button id="item-teleport" title="เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
           </div>
-          <button id="turn-mobile" class="turn-mobile" title="กลับหน้ารถโดยไม่ต้องเดิน (R)">↔ กลับรถ</button>
           <button id="fire" class="fire-button" title="กดค้างเพื่อเพิ่มพลัง ปล่อยเพื่อยิง">FIRE</button>
         </div>
       </div>

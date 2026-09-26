@@ -22,6 +22,8 @@ let teleportMode = false;
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
 const pressed = { left: false, right: false };
+const touchPressed = { left: false, right: false };
+const touchReleaseHandlers: Array<() => void> = [];
 let sentDirection: -1 | 0 | 1 = 0;
 let chargeStartedAt: number | null = null;
 let chargeFrame = 0;
@@ -136,7 +138,6 @@ fireButton.addEventListener('click', event => {
 $('item-double').addEventListener('click', () => send({ type: 'item', item: 'double' }));
 $('item-repair').addEventListener('click', () => send({ type: 'item', item: 'repair' }));
 $('item-teleport').addEventListener('click', () => { setTeleportMode(!teleportMode); if (teleportMode) toast('เล็งมุม กดยิงค้างเพื่อเพิ่มพลัง แล้วปล่อยเพื่อย้าย'); });
-$('turn-mobile').addEventListener('click', () => { if (canControl()) { releaseMovement(); send({ type: 'turn' }); } });
 function setTeleportMode(value: boolean): void {
   teleportMode = value;
   $('item-teleport').classList.toggle('selected', value);
@@ -148,22 +149,94 @@ function canControl(): boolean {
   return gameState?.phase === 'playing' && gameState.activeId === playerId;
 }
 function syncMovement(): void {
-  const direction: -1 | 0 | 1 = !canControl() ? 0 : pressed.left === pressed.right ? 0 : pressed.left ? -1 : 1;
+  const left = pressed.left || touchPressed.left;
+  const right = pressed.right || touchPressed.right;
+  const direction: -1 | 0 | 1 = !canControl() ? 0 : left === right ? 0 : left ? -1 : 1;
   if (direction === sentDirection) return;
   sentDirection = direction;
   send({ type: 'move', direction });
 }
 function releaseMovement(): void {
   pressed.left = false; pressed.right = false;
+  touchReleaseHandlers.forEach(release => release());
   syncMovement();
 }
+function adjustAngle(amount: number): void {
+  angleInput.value = String(Math.max(10, Math.min(80, Number(angleInput.value) + amount)));
+  updateAim();
+}
+
+const settingsToggle = $('settings-toggle') as HTMLButtonElement;
+const settingsPopup = $('settings-popup');
+const touchToggle = $('touch-controls-toggle') as HTMLInputElement;
+const touchDpad = $('touch-dpad');
+function closeSettings(): void {
+  settingsPopup.classList.add('hidden');
+  settingsToggle.setAttribute('aria-expanded', 'false');
+}
+function setTouchControls(visible: boolean): void {
+  touchToggle.checked = visible;
+  touchDpad.classList.toggle('hidden', !visible);
+  if (!visible) touchReleaseHandlers.forEach(release => release());
+  try { localStorage.setItem('skyward-touch-controls', visible ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
+}
+try { setTouchControls(localStorage.getItem('skyward-touch-controls') === 'on'); }
+catch { setTouchControls(false); }
+settingsToggle.addEventListener('click', () => {
+  const opening = settingsPopup.classList.contains('hidden');
+  settingsPopup.classList.toggle('hidden', !opening);
+  settingsToggle.setAttribute('aria-expanded', String(opening));
+});
+$('settings-close').addEventListener('click', closeSettings);
+touchToggle.addEventListener('change', () => setTouchControls(touchToggle.checked));
+document.addEventListener('pointerdown', event => {
+  if (!settingsPopup.classList.contains('hidden') && !settingsPopup.contains(event.target as Node) && !settingsToggle.contains(event.target as Node)) closeSettings();
+});
+window.addEventListener('keydown', event => { if (event.key === 'Escape') closeSettings(); });
+
+document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => {
+  const direction = button.dataset.direction as 'left' | 'right' | 'up' | 'down';
+  let activePointer: number | null = null;
+  let repeatDelay = 0;
+  let repeatTimer = 0;
+  const release = (): void => {
+    if (activePointer === null) return;
+    activePointer = null;
+    clearTimeout(repeatDelay);
+    clearInterval(repeatTimer);
+    if (direction === 'left' || direction === 'right') {
+      touchPressed[direction] = false;
+      syncMovement();
+    }
+  };
+  touchReleaseHandlers.push(release);
+  button.addEventListener('pointerdown', event => {
+    if (!canControl() || activePointer !== null) return;
+    event.preventDefault();
+    activePointer = event.pointerId;
+    button.setPointerCapture(event.pointerId);
+    if (direction === 'left' || direction === 'right') {
+      touchPressed[direction] = true;
+      syncMovement();
+    } else {
+      const amount = direction === 'up' ? 1 : -1;
+      adjustAngle(amount);
+      repeatDelay = window.setTimeout(() => {
+        repeatTimer = window.setInterval(() => { if (canControl()) adjustAngle(amount); else release(); }, 80);
+      }, 280);
+    }
+  });
+  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    button.addEventListener(eventName, event => { if (activePointer === (event as PointerEvent).pointerId) release(); });
+  }
+});
 window.addEventListener('keydown', event => {
   if (gameState?.phase !== 'playing' || gameState.activeId !== playerId || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     pressed[event.key === 'ArrowLeft' ? 'left' : 'right'] = true;
     syncMovement(); event.preventDefault();
   } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-    angleInput.value = String(Math.max(10, Math.min(80, Number(angleInput.value) + (event.key === 'ArrowUp' ? 1 : -1)))); updateAim(); event.preventDefault();
+    adjustAngle(event.key === 'ArrowUp' ? 1 : -1); event.preventDefault();
   } else if (event.code === 'KeyR') {
     if (!event.repeat) { releaseMovement(); send({ type: 'turn' }); }
     event.preventDefault();
@@ -226,8 +299,8 @@ function render(state: GameState): void {
     setPower(20);
     updateAim();
   }
-  for (const id of ['angle', 'fire', 'turn-mobile']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
-  $('turn-mobile').textContent = me?.facing === 1 ? '↶ หันซ้าย' : '↷ หันขวา';
+  for (const id of ['angle', 'fire']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
+  document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => { button.disabled = !canAct; });
   for (const item of ['double', 'repair', 'teleport'] as const) {
     ($<HTMLButtonElement>(`item-${item}`)).disabled = !canAct || !me?.items[item] || (item === 'double' && me.doubleArmed);
     $(`count-${item}`).textContent = String(me?.items[item] ?? 0);

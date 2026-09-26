@@ -38,7 +38,28 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
 .fire-button.charging{transform:translateY(2px);filter:brightness(1.2);box-shadow:inset 0 0 0 2px #fff1c1,0 0 22px #f5c35a99}
 @media(max-width:760px){.aim-sliders .power-meter{display:block;width:100%;height:10px}}
 
-.turn-mobile{min-width:106px;min-height:106px;padding:8px;border:1px solid #a4c6c3;border-radius:6px;background:linear-gradient(145deg,#183f50,#10283f);color:#f7f1d9;font:700 15px Kanit,sans-serif;box-shadow:inset 0 0 0 1px #d6b37555,0 5px 20px #0d172683}
-.turn-mobile:hover:not(:disabled){filter:brightness(1.2)}
-@media(max-width:760px){.turn-mobile{min-width:49px;min-height:55px;padding:2px;font-size:9px}}
-@media(max-width:430px){.aim-panel{width:37%}.item-panel button{min-width:28px}.turn-mobile{min-width:42px}.fire-button{min-width:50px}}
+@media(max-width:430px){.aim-panel{width:37%}.item-panel button{min-width:28px}}
+
+/* Optional touch controls and settings stay above the playfield without changing its layout. */
+#player-strip{right:390px}
+.weather-panel{width:365px;min-width:0}
+.settings-toggle{flex:0 0 35px;width:35px;height:35px;padding:0;border:1px solid #abcfce;border-radius:7px;background:linear-gradient(145deg,#31556b,#172d49);color:#f7e8bc;font-size:24px;line-height:1;box-shadow:inset 0 0 0 1px #d8b87977}
+.settings-toggle:hover,.settings-toggle[aria-expanded="true"]{filter:brightness(1.2);border-color:#f5c35a}
+.settings-popup{position:absolute;z-index:5;top:91px;right:12px;width:min(310px,calc(100% - 24px));padding:14px;background:linear-gradient(145deg,#193651f8,#0d2039f8);border:1px solid #e5c684;border-radius:10px;box-shadow:0 12px 36px #071527c9,inset 0 0 0 1px #8aaeb266;pointer-events:auto}
+.settings-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;font:700 19px Kanit,sans-serif;color:#ffe6ab}
+.settings-heading button{width:28px;height:28px;border:1px solid #789caf;border-radius:5px;background:#1d3c54;color:#fff;font-size:22px;line-height:1}
+.settings-option{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border:1px solid #62889a;border-radius:7px;background:#102640;color:#f8f2df;font-size:14px;cursor:pointer}
+.settings-option small{display:block;color:#b4ccd3;font-size:11px}
+.settings-option input{width:20px;height:20px;flex:0 0 20px;accent-color:#71d5c1;cursor:pointer}
+.touch-dpad{position:absolute;z-index:4;bottom:140px;left:16px;display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:3px;pointer-events:none;user-select:none;touch-action:none}
+.touch-dpad button{pointer-events:auto;touch-action:none;border:2px solid #a8c9cc;border-radius:10px;background:linear-gradient(145deg,#294b66ed,#102b48ed);color:#fff4d4;font:800 23px Outfit,sans-serif;box-shadow:inset 0 0 0 1px #e5c18788,0 4px 12px #07152799;text-shadow:0 1px 3px #071527}
+.touch-dpad button:active{background:linear-gradient(145deg,#487b87,#20536c);transform:translateY(1px)}
+.dpad-up{grid-column:2;grid-row:1}.dpad-left{grid-column:1;grid-row:2}.dpad-right{grid-column:3;grid-row:2}.dpad-down{grid-column:2;grid-row:3}
+
+/* ImageGen plate is a decorative layer; live text remains selectable and accessible. */
+.fire-button{min-width:190px;min-height:106px;padding:0 14px 2px;border:0;border-radius:0;background:transparent url('/assets/ui/fire-button.png') center/100% 100% no-repeat;color:#fff7db;text-shadow:0 2px 2px #5b1517,0 0 10px #ffd992;box-shadow:none;filter:drop-shadow(0 5px 9px #0d1726a8)}
+.fire-button:hover:not(:disabled){filter:brightness(1.12) drop-shadow(0 5px 9px #0d1726a8)}
+.fire-button.portal-armed{background:transparent url('/assets/ui/fire-button.png') center/100% 100% no-repeat;color:#fff7ff;text-shadow:0 2px 3px #421d65,0 0 12px #d4a5ff;filter:hue-rotate(158deg) drop-shadow(0 5px 9px #0d1726a8)}
+.fire-button.charging{transform:translateY(2px);filter:brightness(1.22) drop-shadow(0 0 13px #f5c35acc);box-shadow:none}
+.fire-button.portal-armed.charging{filter:hue-rotate(158deg) brightness(1.22) drop-shadow(0 0 13px #c997ffcc)}
+@media(max-width:760px){#player-strip{right:5px}.weather-panel{top:42px;right:5px;width:auto;min-width:205px;height:33px;padding:3px 5px;gap:3px}.settings-toggle{flex-basis:26px;width:26px;height:26px;font-size:18px}.settings-popup{top:79px;right:5px;width:min(280px,calc(100% - 10px));padding:10px}.settings-heading{font-size:15px;margin-bottom:7px}.settings-option{font-size:12px;padding:7px}.touch-dpad{left:5px;bottom:66px;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(3,34px);gap:2px}.touch-dpad button{font-size:17px;border-radius:7px}.fire-button{min-width:84px;min-height:59px;font-size:16px;padding:0 6px}}
