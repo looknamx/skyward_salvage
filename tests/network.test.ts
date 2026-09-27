@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import WebSocket from 'ws';
 import type { ServerEvent } from '../shared/game.ts';
+import { fireTeleport } from '../shared/game.ts';
 
 const port = 34000 + Math.floor(Math.random() * 10000);
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
@@ -49,9 +50,16 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       const welcome = await host.waitFor(e => e.type === 'welcome');
       assert.equal(welcome.type, 'welcome');
       const code = welcome.code;
+      const sessionTokens = [welcome.token];
       for (let i = 1; i < count; i++) {
         clients[i].send({ type: 'join', code, name: `Friend ${i}`, mobile: i % 2 ? 'manta' : 'borer' });
-        await clients[i].waitFor(e => e.type === 'welcome');
+        const joined = await clients[i].waitFor(e => e.type === 'welcome');
+        assert.equal(joined.type, 'welcome');
+        sessionTokens.push(joined.token);
+      }
+      if (count === 4) {
+        host.send({ type: 'set-mode', mode: 'teams' });
+        await host.waitFor(e => e.type === 'state' && e.state.mode === 'teams');
       }
       host.send({ type: 'start' });
       const states = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'state' && e.state.phase === 'playing')));
@@ -59,6 +67,7 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(event.type, 'state');
         assert.equal(event.state.players.length, count);
         assert.equal(event.state.activeId, welcome.id);
+        assert.equal(event.state.mode, count === 4 ? 'teams' : 'ffa');
       }
       const initialX = states[0].type === 'state' ? states[0].state.players[0].x : 0;
       host.send({ type: 'move', direction: 1 });
@@ -82,7 +91,19 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       assert.deepEqual(nextStates, Array(count).fill(nextStates[0]));
       assert.ok(nextStates[0]!.players[0].x > initialX);
       const oldX = nextStates[0]!.players[1].x;
-      clients[1].send({ type: 'item', item: 'teleport', angle: 10, power: 20 });
+      let teleportAim: { angle: number; power: number } | null = null;
+      for (const angle of [20, 30, 40, 50, 60, 70, 80]) {
+        for (const power of [20, 30, 40, 50, 60, 70]) {
+          try {
+            fireTeleport(structuredClone(nextStates[0]!), nextStates[0]!.players[1].id, angle, power, Date.now());
+            teleportAim = { angle, power };
+            break;
+          } catch { /* Try a different landing position. */ }
+        }
+        if (teleportAim) break;
+      }
+      assert.ok(teleportAim, 'a valid teleport shot exists for the random map');
+      clients[1].send({ type: 'item', item: 'teleport', ...teleportAim });
       const teleportShots = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'shot' && e.shot.kind === 'teleport')));
       assert.deepEqual(teleportShots, Array(count).fill(teleportShots[0]));
       const afterTeleport = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'state' && e.state.turn === 3)));
@@ -91,6 +112,22 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       assert.notEqual(teleportStates[0]!.players[1].x, oldX);
       assert.equal(teleportStates[0]!.players[1].items.teleport, 0);
       assert.equal(teleportStates[0]!.players[1].x, teleportShots[0].type === 'shot' ? teleportShots[0].shot.impacts[0].x : NaN);
+      if (count === 4) {
+        clients[2].close();
+        await host.waitFor(e => e.type === 'state' && e.state.phase === 'playing' && e.state.players.length === 4 && !e.state.players[2].connected);
+        const resumedClient = new Client();
+        await resumedClient.open();
+        resumedClient.send({ type: 'resume', token: sessionTokens[2] });
+        const resumed = await resumedClient.waitFor(e => e.type === 'welcome');
+        assert.equal(resumed.type, 'welcome');
+        assert.equal(resumed.resumed, true);
+        assert.equal(resumed.id, teleportStates[0]!.players[2].id);
+        const resumedState = await resumedClient.waitFor(e => e.type === 'state' && e.state.phase === 'playing' && e.state.players[2].connected);
+        assert.equal(resumedState.type, 'state');
+        const restoredHost = await host.waitFor(e => e.type === 'state' && JSON.stringify(e.state) === JSON.stringify(resumedState.state));
+        assert.deepEqual(restoredHost, resumedState);
+        resumedClient.close();
+      }
       clients.forEach(client => client.close());
     }
   } finally {

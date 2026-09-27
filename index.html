@@ -32,6 +32,7 @@
           <p class="eyebrow">ห้องส่วนตัว</p>
           <h2>เตรียมออกเดินทาง</h2>
           <div class="invite">รหัสห้อง <strong id="lobby-code"></strong> <button id="copy-link">คัดลอกลิงก์</button></div>
+          <label class="mode-select" for="match-mode">รูปแบบการเล่น <select id="match-mode"><option value="ffa">ทุกคนสู้กัน</option><option value="teams">ทีม 2v2 (ต้องมี 4 คน)</option></select></label>
           <div id="lobby-players" class="lobby-players"></div>
           <p class="hint">เลือก Mobile บนหน้าก่อนเข้าห้องได้ • เจ้าของห้องเริ่มเมื่อมีผู้เล่น 2–4 คน</p>
           <button id="start" class="primary" disabled>เริ่มเกม</button>
@@ -66,11 +67,14 @@
             <button id="item-double" title="เพิ่มดาเมจของนัดนี้ 2 เท่า"><img src="/assets/ui/double.png" alt="" /><span>×2</span><small id="count-double">1</small></button>
             <button id="item-repair" title="ฟื้นฟู 28 HP และจบเทิร์น"><img src="/assets/ui/repair.png" alt="" /><span>ซ่อม</span><small id="count-repair">1</small></button>
             <button id="item-teleport" title="เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
+            <button id="item-special" title="ท่าพิเศษของ Mobile ใช้ได้หนึ่งครั้งต่อรอบ"><b class="special-symbol">✦</b><span>ท่าพิเศษ</span><small id="count-special">1</small></button>
           </div>
           <button id="fire" class="fire-button" title="กดค้างเพื่อเพิ่มพลัง ปล่อยเพื่อยิง">FIRE</button>
         </div>
       </div>
-      <section id="result" class="overlay hidden"><div class="result-card"><p class="eyebrow">จบรอบ</p><h2 id="result-title"></h2><p>สร้างห้องใหม่เพื่อเล่นอีกครั้ง</p><button id="again" class="primary">กลับหน้าหลัก</button></div></section>
+      <section id="result" class="overlay hidden"><div class="result-card"><p class="eyebrow">จบรอบ</p><h2 id="result-title"></h2><div id="result-stats" class="result-stats"></div><p id="ready-status" class="status"></p><div class="result-actions"><button id="rematch-ready" class="primary">พร้อมเล่นอีกครั้ง</button><button id="replay-start" type="button">ดูรีเพลย์</button><button id="again" type="button">กลับหน้าหลัก</button></div></div></section>
+      <div id="replay-controls" class="replay-controls hidden"><button id="replay-prev" type="button" aria-label="การยิงก่อนหน้า">◀</button><span id="replay-label"></span><button id="replay-next" type="button" aria-label="การยิงถัดไป">▶</button><button id="replay-close" type="button">ปิด</button></div>
+      <div id="connection-status" class="connection-status hidden" role="status">กำลังกลับเข้าห้อง…</div>
       <div id="toast" role="status"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createState, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound, turnPlayer, useItem, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound, turnPlayer, useItem, windFor } from '../shared/game.ts';
 
 test('round starts with 2–4 players, seeded terrain, and a server turn', () => {
   for (const count of [2, 3, 4]) {
@@ -65,4 +65,73 @@ test('walking is gradual, follows terrain, and is restricted to the active turn'
   assert.equal(state.players[0].facing, 1);
   turnPlayer(state, 'p1');
   assert.equal(state.players[0].facing, -1);
+});
+
+test('2v2 assigns teams, prevents friendly fire, and supports a same-room round reset', () => {
+  const state = createState('TEAM42', 'p1', 'One', 'loom');
+  for (let i = 2; i <= 4; i++) state.players.push(makePlayer(`p${i}`, `Player ${i}`, 'borer'));
+  state.mode = 'teams';
+  startRound(state, 77, 1000);
+  assert.deepEqual(state.players.map(player => player.team), [0, 1, 0, 1]);
+  const preview = fireShot(structuredClone(state), 'p1', 45, 45, 1100);
+  const impact = preview.impacts[0];
+  assert.ok(impact);
+  for (const player of [state.players[1], state.players[2]]) {
+    player.x = impact.x;
+    player.y = impact.y - 13;
+  }
+  fireShot(state, 'p1', 45, 45, 1100);
+  assert.ok(state.players[1].hp < 100);
+  assert.equal(state.players[2].hp, 100);
+  assert.equal(state.players[0].stats.hits, 1);
+  assert.ok(state.players[0].stats.damageDealt > 0);
+  state.phase = 'finished';
+  startRound(state, 78, 2000);
+  assert.equal(state.players[1].hp, 100);
+  assert.equal(state.players[0].stats.shots, 0);
+  assert.equal(state.turn, 1);
+});
+
+test('each Mobile has a single-use special shot that resets next round', () => {
+  for (const mobile of ['loom', 'manta', 'borer'] as const) {
+    const state = createState('SKILL1', 'p1', 'One', mobile);
+    state.players.push(makePlayer('p2', 'Two', 'loom'));
+    startRound(state, 47, 1000);
+    const shot = fireShot(state, 'p1', 45, 45, 1100, true);
+    assert.equal(shot.special, true);
+    assert.equal(state.players[0].specialAvailable, false);
+    assert.equal(state.players[0].stats.shots, 1);
+    assert.equal(state.players[0].stats.itemsUsed, 1);
+    if (mobile === 'manta') assert.equal(shot.paths.length, 3);
+    if (state.phase === 'playing') {
+      fireShot(state, 'p2', 45, 45, 1200);
+      assert.throws(() => fireShot(state, 'p1', 45, 45, 1300, true), /ใช้ไปแล้ว/);
+    }
+    state.phase = 'finished';
+    startRound(state, 48, 2000);
+    assert.equal(state.players[0].specialAvailable, true);
+  }
+});
+
+test('an item drops on turn 8 and only an empty matching slot can collect it', () => {
+  const state = createState('DROP42', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'manta'));
+  startRound(state, 22, 1000);
+  for (let turn = 2; turn <= 8; turn++) finishOrAdvance(state, 1000 + turn);
+  assert.equal(state.turn, 8);
+  assert.equal(state.drops.length, 1);
+  const drop = state.drops[0];
+  assert.equal(drop.spawnedTurn, 8);
+  const player = state.players.find(candidate => candidate.id === state.activeId)!;
+  player.x = drop.x;
+  assert.equal(collectItemDrop(state, player), null);
+  assert.equal(state.drops.length, 1);
+  player.items[drop.item] = 0;
+  assert.equal(collectItemDrop(state, player), drop.item);
+  assert.equal(player.items[drop.item], 1);
+  assert.equal(player.stats.pickups, 1);
+  assert.equal(state.drops.length, 0);
+  for (let turn = 9; turn <= 16; turn++) finishOrAdvance(state, 1000 + turn);
+  assert.equal(state.turn, 16);
+  assert.equal(state.drops[0].spawnedTurn, 16);
 });

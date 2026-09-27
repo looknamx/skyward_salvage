@@ -30,6 +30,7 @@ export class GameScene extends Phaser.Scene {
   private effects!: Phaser.GameObjects.Graphics;
   private mobiles = new Map<string, Phaser.GameObjects.Image>();
   private labels = new Map<string, Phaser.GameObjects.Text>();
+  private drops = new Map<string, { image: Phaser.GameObjects.Image; started: number }>();
   private effect: { data: ShotResult; started: number } | null = null;
 
   constructor() { super('battle'); }
@@ -40,6 +41,7 @@ export class GameScene extends Phaser.Scene {
       this.load.image(`${key}-rock`, `/assets/terrain/${key}-rock.png`);
     }
     for (const kind of kinds) this.load.image(`mobile-${kind}`, `/assets/characters/${kind}.png`);
+    for (const item of ['double', 'repair', 'teleport']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
   }
 
   create(): void {
@@ -73,9 +75,16 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  showShot(shot: ShotResult): void {
+  showShot(shot: ShotResult, snapshot?: GameState): void {
+    if (snapshot) this.applyState(snapshot);
     this.effect = { data: shot, started: this.time.now };
     this.pendingState = null;
+  }
+
+  clearShot(): void {
+    this.effect = null;
+    this.pendingState = null;
+    this.effects?.clear();
   }
 
   update(): void {
@@ -87,7 +96,31 @@ export class GameScene extends Phaser.Scene {
     }
     if (!this.state || this.state.phase === 'lobby' || !this.state.terrain.length) return;
     this.renderMobiles();
+    this.renderDrops();
     this.renderShot();
+  }
+
+  private renderDrops(): void {
+    const state = this.state!;
+    const current = new Set(state.drops.map(drop => drop.id));
+    for (const [id, entry] of this.drops) {
+      if (current.has(id)) continue;
+      this.tweens.killTweensOf(entry.image);
+      entry.image.destroy();
+      this.drops.delete(id);
+    }
+    for (const drop of state.drops) {
+      let entry = this.drops.get(drop.id);
+      if (!entry) {
+        const image = this.add.image(drop.x, -40, `drop-${drop.item}`).setDisplaySize(46, 46).setDepth(9);
+        entry = { image, started: this.time.now };
+        this.drops.set(drop.id, entry);
+        this.tweens.add({ targets: image, y: drop.y, duration: 950, ease: 'Quad.easeIn' });
+      } else if (this.time.now - entry.started >= 950) entry.image.setPosition(drop.x, drop.y);
+      const pulse = 0.55 + 0.25 * Math.sin(this.time.now / 180);
+      this.effects.lineStyle(2, 0xffdc91, pulse);
+      this.effects.strokeCircle(drop.x, entry.image.y, 23);
+    }
   }
 
   private paintTerrain(state: GameState): void {
@@ -226,19 +259,20 @@ export class GameScene extends Phaser.Scene {
     if (elapsed > 1360) { this.effect = null; return; }
     const g = this.effects;
     const teleport = this.effect.data.kind === 'teleport';
+    const special = !!this.effect.data.special;
     if (elapsed < 820) {
       const fraction = elapsed / 820;
       for (const path of this.effect.data.paths) {
         if (!path.length) continue;
         const index = Math.min(path.length - 1, Math.floor(fraction * (path.length - 1)));
         const p = path[index];
-        g.fillStyle(teleport ? 0x9d71ef : 0xffd280, .25); g.fillCircle(p.x, p.y, 15);
-        g.fillStyle(teleport ? 0xc6a2ff : 0xfff1b7, 1); g.fillCircle(p.x, p.y, 5);
+        g.fillStyle(teleport ? 0x9d71ef : special ? 0x53e5d3 : 0xffd280, .25); g.fillCircle(p.x, p.y, 15);
+        g.fillStyle(teleport ? 0xc6a2ff : special ? 0xbaffef : 0xfff1b7, 1); g.fillCircle(p.x, p.y, 5);
       }
     } else {
       const expansion = Math.min(1, (elapsed - 820) / 540);
       for (const impact of this.effect.data.impacts) {
-        g.lineStyle(4 * (1 - expansion), teleport ? 0xb887ff : 0xffe0a0, 1 - expansion);
+        g.lineStyle(4 * (1 - expansion), teleport ? 0xb887ff : special ? 0x76f5dc : 0xffe0a0, 1 - expansion);
         g.strokeCircle(impact.x, impact.y, impact.radius * expansion);
       }
     }

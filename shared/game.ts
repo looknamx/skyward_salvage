@@ -8,6 +8,10 @@ export const MOVE_SPEED = 88;
 export type MobileKind = 'loom' | 'manta' | 'borer';
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport';
+export type MatchMode = 'ffa' | 'teams';
+export type Team = 0 | 1;
+export interface PlayerStats { shots: number; hits: number; damageDealt: number; damageTaken: number; itemsUsed: number; pickups: number; distanceMoved: number }
+export interface ItemDrop { id: string; item: ItemKind; x: number; y: number; spawnedTurn: number }
 
 export interface PlayerState {
   id: string;
@@ -20,6 +24,9 @@ export interface PlayerState {
   doubleArmed: boolean;
   connected: boolean;
   facing: -1 | 1;
+  team: Team | null;
+  specialAvailable: boolean;
+  stats: PlayerStats;
 }
 
 export interface GameState {
@@ -36,28 +43,39 @@ export interface GameState {
   deadline: number;
   winnerId: string | null;
   message: string;
+  mode: MatchMode;
+  winnerTeam: Team | null;
+  rematchReady: string[];
+  drops: ItemDrop[];
 }
 
 export interface Point { x: number; y: number }
 export interface Impact extends Point { radius: number; damage: number }
-export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; impacts: Impact[] }
+export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[] }
+export interface ReplayShot { turn: number; shooterId: string; shot: ShotResult }
+export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[]; shots: ReplayShot[] }
 
 export type ClientAction =
   | { type: 'create'; name: string; mobile: MobileKind }
   | { type: 'join'; code: string; name: string; mobile: MobileKind }
   | { type: 'select'; mobile: MobileKind }
   | { type: 'start' }
+  | { type: 'set-mode'; mode: MatchMode }
+  | { type: 'rematch-ready'; ready: boolean }
+  | { type: 'resume'; token: string }
   | { type: 'move'; direction: -1 | 0 | 1 }
   | { type: 'turn' }
-  | { type: 'fire'; angle: number; power: number }
+  | { type: 'fire'; angle: number; power: number; special?: boolean }
   | { type: 'item'; item: ItemKind; angle?: number; power?: number };
 
 export type ServerEvent =
-  | { type: 'welcome'; id: string; code: string }
+  | { type: 'welcome'; id: string; code: string; token: string; resumed: boolean }
   | { type: 'state'; state: GameState }
   | { type: 'shot'; shot: ShotResult }
   | { type: 'hit' }
   | { type: 'item-used'; item: ItemKind }
+  | { type: 'item-picked'; item: ItemKind; playerId: string }
+  | { type: 'match-summary'; summary: MatchSummary }
   | { type: 'error'; message: string };
 
 export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; damage: number; radius: number; crater: number }> = {
@@ -65,6 +83,8 @@ export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; dam
   manta: { label: 'Manta', color: 0x4ab8af, damage: 22, radius: 42, crater: 16 },
   borer: { label: 'Borer', color: 0xf5c35a, damage: 38, radius: 68, crater: 40 },
 };
+const ITEM_KINDS: ItemKind[] = ['double', 'repair', 'teleport'];
+function emptyStats(): PlayerStats { return { shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, itemsUsed: 0, pickups: 0, distanceMoved: 0 }; }
 
 export function random(seed: number): () => number {
   let value = seed >>> 0;
@@ -110,17 +130,20 @@ export function createState(code: string, hostId: string, name: string, mobile: 
     code, phase: 'lobby', hostId,
     players: [makePlayer(hostId, name, mobile)], terrain: [], map: 'cloud-reef',
     seed: 0, wind: 0, turn: 0, activeId: null, deadline: 0, winnerId: null,
-    message: 'รอผู้เล่น 2–4 คน',
+    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', winnerTeam: null, rematchReady: [], drops: [],
   };
 }
 
 export function makePlayer(id: string, name: string, mobile: MobileKind): PlayerState {
   return { id, name, mobile, x: 0, y: 0, hp: 100,
-    items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1 };
+    items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1,
+    team: null, specialAvailable: true, stats: emptyStats() };
 }
 
 export function startRound(state: GameState, seed: number, now: number): void {
-  if (state.phase !== 'lobby' || state.players.length < 2 || state.players.length > MAX_PLAYERS) throw new Error('ต้องมีผู้เล่น 2–4 คน');
+  if (state.phase !== 'lobby' && state.phase !== 'finished') throw new Error('เริ่มรอบใหม่ไม่ได้');
+  if (state.players.length < 2 || state.players.length > MAX_PLAYERS || state.players.some(player => !player.connected)) throw new Error('ต้องมีผู้เล่นที่เชื่อมต่อ 2–4 คน');
+  if (state.mode === 'teams' && state.players.length !== 4) throw new Error('โหมดทีมต้องมีผู้เล่น 4 คน');
   const maps: MapKind[] = ['cloud-reef', 'clockwork-orchard', 'glass-dunes'];
   state.seed = seed;
   state.map = maps[seed % maps.length];
@@ -132,6 +155,9 @@ export function startRound(state: GameState, seed: number, now: number): void {
     player.items = { double: 1, repair: 1, teleport: 1 };
     player.doubleArmed = false;
     player.facing = player.x > WIDTH / 2 ? -1 : 1;
+    player.team = state.mode === 'teams' ? index % 2 as Team : null;
+    player.specialAvailable = true;
+    player.stats = emptyStats();
   });
   settlePlayers(state);
   state.phase = 'playing';
@@ -140,6 +166,9 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.wind = windFor(seed, state.turn);
   state.deadline = now + TURN_MS;
   state.winnerId = null;
+  state.winnerTeam = null;
+  state.rematchReady = [];
+  state.drops = [];
   state.message = `${state.players[0].name} กำลังเล็ง`;
 }
 
@@ -149,27 +178,57 @@ export function windFor(seed: number, turn: number): number {
 }
 
 export function finishOrAdvance(state: GameState, now: number): void {
-  const alive = state.players.filter(p => p.hp > 0 && p.connected);
-  if (alive.length <= 1) {
+  const alive = state.players.filter(p => p.hp > 0);
+  const livingTeams = new Set(alive.map(player => player.team));
+  if (state.mode === 'teams' ? livingTeams.size <= 1 : alive.length <= 1) {
     state.phase = 'finished';
     state.activeId = null;
     state.deadline = 0;
-    state.winnerId = alive[0]?.id ?? null;
-    state.message = alive.length ? `${alive[0].name} ชนะ!` : 'เสมอ!';
+    state.winnerTeam = state.mode === 'teams' ? alive[0]?.team ?? null : null;
+    state.winnerId = state.mode === 'ffa' ? alive[0]?.id ?? null : null;
+    state.message = alive.length ? state.mode === 'teams' ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : `${alive[0].name} ชนะ!` : 'เสมอ!';
     return;
   }
   const oldIndex = state.players.findIndex(p => p.id === state.activeId);
+  let nextId: string | null = null;
   for (let offset = 1; offset <= state.players.length; offset++) {
     const candidate = state.players[(oldIndex + offset) % state.players.length];
     if (candidate.hp > 0 && candidate.connected) {
-      state.activeId = candidate.id;
+      nextId = candidate.id;
       break;
     }
   }
+  state.activeId = nextId;
+  if (!nextId) { state.deadline = 0; state.message = 'รอผู้เล่นกลับเข้าห้อง'; return; }
   state.turn++;
   state.wind = windFor(state.seed, state.turn);
   state.deadline = now + TURN_MS;
-  state.message = `${state.players.find(p => p.id === state.activeId)?.name ?? ''} กำลังเล็ง`;
+  state.message = `${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง`;
+  if (state.turn % 8 === 0) spawnItemDrop(state);
+}
+
+export function spawnItemDrop(state: GameState): ItemDrop | null {
+  if (state.phase !== 'playing') return null;
+  if (state.drops.length >= 6) state.drops.shift();
+  const next = random(state.seed ^ Math.imul(state.turn, 0x51ed270b));
+  const item = ITEM_KINDS[Math.floor(next() * ITEM_KINDS.length)];
+  let x = 100 + next() * (WIDTH - 200);
+  for (let attempt = 0; attempt < 12; attempt++) {
+    if (state.players.every(player => player.hp <= 0 || Math.abs(player.x - x) >= 85) && state.drops.every(drop => Math.abs(drop.x - x) >= 70)) break;
+    x = 100 + next() * (WIDTH - 200);
+  }
+  const drop = { id: `drop-${state.turn}`, item, x: Math.round(x), y: groundAt(state.terrain, x) - 24, spawnedTurn: state.turn };
+  state.drops.push(drop);
+  return drop;
+}
+
+export function collectItemDrop(state: GameState, player: PlayerState): ItemKind | null {
+  const index = state.drops.findIndex(drop => Math.abs(player.x - drop.x) <= 34 && player.items[drop.item] === 0);
+  if (index < 0) return null;
+  const [drop] = state.drops.splice(index, 1);
+  player.items[drop.item] = 1;
+  player.stats.pickups++;
+  return drop.item;
 }
 
 export function crater(terrain: number[], x: number, radius: number, depth: number): void {
@@ -191,8 +250,10 @@ export function movePlayer(state: GameState, playerId: string, direction: number
   const nextX = Math.max(58, Math.min(WIDTH - 58, player.x + direction * MOVE_SPEED * Math.max(0, Math.min(100, elapsedMs)) / 1000));
   if (state.players.some(other => other.id !== playerId && other.hp > 0 && Math.abs(other.x - nextX) < 72)) return turned;
   if (Math.abs(nextX - player.x) < 0.001) return turned;
+  player.stats.distanceMoved += Math.abs(nextX - player.x);
   player.x = nextX;
   player.y = groundAt(state.terrain, nextX) - 13;
+  collectItemDrop(state, player);
   return true;
 }
 
@@ -241,7 +302,7 @@ function trace(state: GameState, player: PlayerState, angle: number, power: numb
   return { path, hit: null };
 }
 
-function traceManta(state: GameState, player: PlayerState, angle: number, power: number): { path: Point[]; hit: Point | null }[] {
+function traceManta(state: GameState, player: PlayerState, angle: number, power: number, special: boolean): { path: Point[]; hit: Point | null }[] {
   const radians = angle * Math.PI / 180;
   const speed = 280 + power * 4.2;
   const origin = shotOrigin(state, player, radians);
@@ -263,7 +324,7 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
     }
     if (vy < 0) continue;
     const direction = vx < 0 ? -1 : 1;
-    return [-1, 1].map(side => {
+    return (special ? [-1, 0, 1] : [-1, 1]).map(side => {
       let childX = x, childY = y, childVx = vx + side * 95 * direction, childVy = -100;
       const path = [...trunk, { x, y }];
       for (let frame = 0; frame < 600; frame++) {
@@ -284,31 +345,46 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
   return [{ path: trunk, hit: null }];
 }
 
-export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number): ShotResult {
+export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false): ShotResult {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
   if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < 20 || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
   const player = state.players.find(p => p.id === playerId)!;
+  if (special && !player.specialAvailable) throw new Error('ท่าพิเศษใช้ไปแล้ว');
   const info = MOBILE_INFO[player.mobile];
-  const result: ShotResult = { kind: 'damage', paths: [], impacts: [] };
+  const result: ShotResult = { kind: 'damage', paths: [], impacts: [], special, hitIds: [] };
   const heading = worldAngle(state, player, angle);
-  const shots = player.mobile === 'manta' ? traceManta(state, player, heading, power) : [trace(state, player, heading, power, 0)];
+  const shots = player.mobile === 'manta' ? traceManta(state, player, heading, power, special) : [trace(state, player, heading, power, 0)];
+  const blast = special ? player.mobile === 'loom' ? { damage: 52, radius: 38, crater: 16 } : player.mobile === 'borer' ? { damage: 50, radius: 88, crater: 54 } : { damage: 20, radius: 37, crater: 14 } : info;
+  const hitIds = new Set<string>();
   for (const shot of shots) {
     result.paths.push(shot.path);
     if (!shot.hit) continue;
     const multiplier = player.doubleArmed ? 2 : 1;
-    const impact = { ...shot.hit, radius: info.radius, damage: info.damage * multiplier };
+    const impact = { ...shot.hit, radius: blast.radius, damage: blast.damage * multiplier };
     result.impacts.push(impact);
     for (const target of state.players) {
       if (target.hp <= 0) continue;
+      if (state.mode === 'teams' && target.team === player.team) continue;
       const distance = Math.hypot(target.x - impact.x, target.y - impact.y);
       if (distance < impact.radius + 14) {
         const falloff = Math.max(0.35, 1 - distance / (impact.radius + 14));
+        const before = target.hp;
         target.hp = Math.max(0, target.hp - Math.round(impact.damage * falloff));
+        const dealt = before - target.hp;
+        if (dealt > 0) {
+          target.stats.damageTaken += dealt;
+          if (target.id !== player.id) { player.stats.damageDealt += dealt; hitIds.add(target.id); }
+        }
       }
     }
-    crater(state.terrain, impact.x, info.radius, info.crater);
+    crater(state.terrain, impact.x, blast.radius, blast.crater);
     settlePlayers(state);
+    for (const drop of state.drops) drop.y = groundAt(state.terrain, drop.x) - 24;
   }
+  player.stats.shots++;
+  if (hitIds.size) player.stats.hits++;
+  result.hitIds = [...hitIds];
+  if (special) { player.specialAvailable = false; player.stats.itemsUsed++; }
   player.doubleArmed = false;
   finishOrAdvance(state, now);
   return result;
@@ -325,6 +401,8 @@ export function fireTeleport(state: GameState, playerId: string, angle: number, 
   player.x = shot.hit.x;
   player.y = groundAt(state.terrain, player.x) - 13;
   player.items.teleport--;
+  player.stats.itemsUsed++;
+  collectItemDrop(state, player);
   finishOrAdvance(state, now);
   return { kind: 'teleport', paths: [shot.path], impacts: [{ ...shot.hit, radius: 36, damage: 0 }] };
 }
@@ -337,12 +415,14 @@ export function useItem(state: GameState, playerId: string, item: ItemKind, now:
     if (player.doubleArmed) throw new Error('เปิดใช้ไอเทมแล้ว');
     player.doubleArmed = true;
     player.items.double--;
+    player.stats.itemsUsed++;
     state.message = `${player.name} เตรียมยิงแรงขึ้น`;
     return;
   }
   if (item === 'repair') {
     player.hp = Math.min(100, player.hp + 28);
     player.items.repair--;
+    player.stats.itemsUsed++;
     finishOrAdvance(state, now);
     return;
   }

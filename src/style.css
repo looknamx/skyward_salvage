@@ -99,8 +99,31 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
   .item-panel button span{font-size:8px}
   .item-panel small{font-size:8px}
   .fire-button{flex:0 0 clamp(84px,10vw,100px);width:clamp(84px,10vw,100px);min-width:0;min-height:56px;height:56px;margin-left:auto;padding:0 4px;font-size:clamp(15px,2vw,19px)}
-  .touch-dpad{left:calc(max(4px,env(safe-area-inset-left)) + clamp(170px,25vw,220px) + 129px);bottom:max(4px,env(safe-area-inset-bottom));grid-template-columns:repeat(4,39px);grid-template-rows:52px;gap:2px}
+  .touch-dpad{left:calc(max(4px,env(safe-area-inset-left)) + clamp(170px,25vw,220px) + 166px);bottom:max(4px,env(safe-area-inset-bottom));grid-template-columns:repeat(4,39px);grid-template-rows:52px;gap:2px}
   .touch-dpad button{font-size:17px;border-radius:7px;background:linear-gradient(145deg,#294b66ed,#102b48ed)}
   .dpad-left{grid-column:1;grid-row:1}.dpad-right{grid-column:2;grid-row:1}.dpad-up{grid-column:3;grid-row:1}.dpad-down{grid-column:4;grid-row:1}
   #toast{bottom:70px;font-size:11px}
 }
+
+.mode-select{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;color:#e4eedd;font-weight:600}
+.mode-select select{min-width:180px;padding:8px 10px;border:1px solid #84a9b5;border-radius:7px;background:#132942;color:#fff4d5;font:600 14px Kanit,sans-serif}
+.mode-select select:disabled{opacity:.7}
+.special-symbol{display:grid;place-items:center;width:63px;height:63px;font:900 42px Outfit,sans-serif;color:#b7f5ee;text-shadow:0 0 8px #65dfce,0 0 18px #53bdb4}
+.fire-button.special-armed{color:#dbfff7;text-shadow:0 2px 3px #125b60,0 0 12px #7ef9e6;filter:hue-rotate(125deg) drop-shadow(0 5px 9px #0d1726a8)}
+.result-card{width:min(700px,100%);max-height:min(92dvh,700px);overflow:auto}
+.result-stats{overflow-x:auto;margin:16px 0}
+.result-stats table{width:100%;border-collapse:collapse;font:500 13px Kanit,sans-serif;text-align:left}
+.result-stats th,.result-stats td{padding:8px 6px;border-bottom:1px solid #607e8d;white-space:nowrap}
+.result-stats th{color:#f5c35a;font-weight:700}
+.result-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.result-actions button,.replay-controls button{padding:9px 14px;border:1px solid #88abb8;border-radius:8px;background:#244660;color:#fff2db;font:600 14px Kanit,sans-serif}
+.result-actions .primary{margin:0;border:0;background:#f67868;color:#16293e}
+.result-actions button:disabled,.replay-controls button:disabled{opacity:.45;cursor:not-allowed}
+.replay-controls{position:absolute;z-index:12;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:8px;border:1px solid #d2bb85;border-radius:10px;background:#122b46ed;box-shadow:0 8px 24px #061629b0;white-space:nowrap}
+.replay-controls span{min-width:160px;text-align:center;font:600 14px Kanit,sans-serif}
+.connection-status{position:absolute;z-index:30;top:50%;left:50%;transform:translate(-50%,-50%);padding:12px 20px;border:1px solid #f5c35a;border-radius:10px;background:#102640f2;color:#fff4d5;font-weight:700;box-shadow:0 10px 30px #061629b0;pointer-events:none}
+.hidden{display:none!important}
+@media(max-width:760px){.special-symbol{width:27px;height:29px;font-size:22px}.result-card{padding:15px}.result-stats table{font-size:10px}.result-stats th,.result-stats td{padding:4px}.result-actions button{font-size:11px;padding:6px 8px}.replay-controls{bottom:8px;gap:4px;padding:4px}.replay-controls span{min-width:115px;font-size:10px}.replay-controls button{padding:4px 7px;font-size:10px}}
+@media (max-width:1000px) and (max-height:520px) and (orientation:landscape){.special-symbol{width:29px;height:29px;font-size:23px}.result-card{max-height:96dvh}.result-stats{margin:5px 0}.result-card h2{font-size:22px}.result-card .eyebrow{font-size:10px}.result-card .status{margin:6px 0}}
+@media (max-width:620px) and (max-height:520px) and (orientation:landscape){.touch-dpad{grid-template-columns:repeat(4,31px);grid-template-rows:45px}.touch-dpad button{font-size:14px}}
+@media (max-width:510px) and (max-height:520px) and (orientation:landscape){.touch-dpad{left:5px;bottom:65px;grid-template-columns:repeat(2,31px);grid-template-rows:repeat(2,31px)}.dpad-left{grid-column:1;grid-row:1}.dpad-right{grid-column:2;grid-row:1}.dpad-up{grid-column:1;grid-row:2}.dpad-down{grid-column:2;grid-row:2}}

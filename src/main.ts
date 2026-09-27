@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GameScene } from './GameScene.ts';
 import { MOBILE_INFO } from '../shared/game.ts';
-import type { ClientAction, GameState, MobileKind, ServerEvent } from '../shared/game.ts';
+import type { ClientAction, GameState, MatchSummary, MobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -19,6 +19,10 @@ let playerId = '';
 let gameState: GameState | null = null;
 let selectedMobile: MobileKind = 'loom';
 let teleportMode = false;
+let specialMode = false;
+let matchSummary: MatchSummary | null = null;
+let replayOpen = false;
+let replayIndex = 0;
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
 const pressed = { left: false, right: false };
@@ -29,7 +33,12 @@ let chargeStartedAt: number | null = null;
 let chargeFrame = 0;
 let suppressFireClick = false;
 const CHARGE_MS = 2400;
-const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
+const SESSION_KEY = 'skyward-room-session';
+let socket: WebSocket | null = null;
+let reconnectTimer = 0;
+let reconnectAttempt = 0;
+let resumePending = false;
+let leavingRoom = false;
 const bgm = new Audio('/assets/sound/BGM.mp3');
 const fireSound = new Audio('/assets/sound/FIRE.mp3');
 const itemSound = new Audio('/assets/sound/USE_ITEM.mp3');
@@ -78,7 +87,7 @@ document.addEventListener('pointerdown', startBgm);
 document.addEventListener('keydown', startBgm);
 
 function send(action: ClientAction): void {
-  if (socket.readyState !== WebSocket.OPEN) { toast('กำลังเชื่อมต่อเซิร์ฟเวอร์'); return; }
+  if (socket?.readyState !== WebSocket.OPEN) { toast('กำลังเชื่อมต่อเซิร์ฟเวอร์'); return; }
   socket.send(JSON.stringify(action));
 }
 function toast(message: string): void {
@@ -117,13 +126,19 @@ function enterRoom(create: boolean): void {
 $('create').addEventListener('click', () => enterRoom(true));
 $('join').addEventListener('click', () => enterRoom(false));
 $('start').addEventListener('click', () => send({ type: 'start' }));
+($('match-mode') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-mode', mode: (event.target as HTMLSelectElement).value as GameState['mode'] }));
 $('copy-link').addEventListener('click', async () => {
   if (!gameState) return;
   const link = `${location.origin}/?room=${gameState.code}`;
   try { await navigator.clipboard.writeText(link); toast('คัดลอกลิงก์แล้ว'); }
   catch { toast(link); }
 });
-$('again').addEventListener('click', () => { location.href = '/'; });
+$('again').addEventListener('click', () => {
+  leavingRoom = true;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable. */ }
+  socket?.close();
+  location.href = '/';
+});
 
 const angleInput = $('angle') as HTMLInputElement;
 const powerMeter = $('power') as HTMLProgressElement;
@@ -143,7 +158,7 @@ function setPower(value: number): void {
 function fireChargedShot(): void {
   const angle = Number(angleInput.value), power = Math.round(powerMeter.value);
   if (teleportMode) send({ type: 'item', item: 'teleport', angle, power });
-  else send({ type: 'fire', angle, power });
+  else send({ type: 'fire', angle, power, special: specialMode });
 }
 function chargePower(): void {
   if (chargeStartedAt === null) return;
@@ -190,15 +205,24 @@ fireButton.addEventListener('touchstart', event => event.preventDefault(), { pas
 $('item-double').addEventListener('click', () => send({ type: 'item', item: 'double' }));
 $('item-repair').addEventListener('click', () => send({ type: 'item', item: 'repair' }));
 $('item-teleport').addEventListener('click', () => { setTeleportMode(!teleportMode); if (teleportMode) toast('เล็งมุม กดยิงค้างเพื่อเพิ่มพลัง แล้วปล่อยเพื่อย้าย'); });
+$('item-special').addEventListener('click', () => { if (canControl()) setSpecialMode(!specialMode); });
 function setTeleportMode(value: boolean): void {
+  if (value) setSpecialMode(false);
   teleportMode = value;
   $('item-teleport').classList.toggle('selected', value);
   $('fire').classList.toggle('portal-armed', value);
-  $('fire').textContent = value ? 'PORTAL' : 'FIRE';
+  $('fire').textContent = value ? 'PORTAL' : specialMode ? 'SKILL' : 'FIRE';
+}
+function setSpecialMode(value: boolean): void {
+  if (value) setTeleportMode(false);
+  specialMode = value;
+  $('item-special').classList.toggle('selected', value);
+  $('fire').classList.toggle('special-armed', value);
+  $('fire').textContent = value ? 'SKILL' : teleportMode ? 'PORTAL' : 'FIRE';
 }
 
 function canControl(): boolean {
-  return gameState?.phase === 'playing' && gameState.activeId === playerId;
+  return socket?.readyState === WebSocket.OPEN && !resumePending && gameState?.phase === 'playing' && gameState.activeId === playerId;
 }
 function syncMovement(): void {
   const left = pressed.left || touchPressed.left;
@@ -206,7 +230,7 @@ function syncMovement(): void {
   const direction: -1 | 0 | 1 = !canControl() ? 0 : left === right ? 0 : left ? -1 : 1;
   if (direction === sentDirection) return;
   sentDirection = direction;
-  send({ type: 'move', direction });
+  if (socket?.readyState === WebSocket.OPEN && !resumePending) send({ type: 'move', direction });
 }
 function releaseMovement(): void {
   pressed.left = false; pressed.right = false;
@@ -300,7 +324,7 @@ document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(butto
   }
 });
 window.addEventListener('keydown', event => {
-  if (gameState?.phase !== 'playing' || gameState.activeId !== playerId || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
+  if (!canControl() || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     pressed[event.key === 'ArrowLeft' ? 'left' : 'right'] = true;
     syncMovement(); event.preventDefault();
@@ -320,25 +344,42 @@ window.addEventListener('keyup', event => {
 window.addEventListener('blur', () => { releaseMovement(); endCharge(false); });
 
 function render(state: GameState): void {
+  const previous = gameState;
+  if (previous?.phase === 'finished' && state.phase === 'playing') {
+    scene.clearShot();
+    matchSummary = null;
+    replayOpen = false;
+    setTeleportMode(false);
+    setSpecialMode(false);
+    $('result-stats').replaceChildren();
+  }
+  if (previous?.phase === 'playing') {
+    const newDrop = state.drops.find(drop => !previous.drops.some(old => old.id === drop.id));
+    if (newDrop) toast('ไอเทมตกลงมาจากฟ้า! เดินไปเก็บเมื่อช่องว่าง');
+  }
   updateMovementSound(gameState, state);
   gameState = state;
   scene.setSnapshot(state, playerId);
   $('landing').classList.add('hidden');
   $('lobby').classList.toggle('hidden', state.phase !== 'lobby');
-  $('hud').classList.toggle('hidden', state.phase === 'lobby');
-  $('result').classList.toggle('hidden', state.phase !== 'finished');
+  $('hud').classList.toggle('hidden', state.phase === 'lobby' || replayOpen);
+  $('result').classList.toggle('hidden', state.phase !== 'finished' || replayOpen);
+  $('replay-controls').classList.toggle('hidden', !replayOpen);
   if (state.phase === 'lobby') {
     $('lobby-code').textContent = state.code;
-    $('lobby-players').replaceChildren(...state.players.map(player => {
+    const modeSelect = $('match-mode') as HTMLSelectElement;
+    modeSelect.value = state.mode;
+    modeSelect.disabled = state.hostId !== playerId;
+    $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
-      const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '');
+      const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
       const mobile = document.createElement('b'); mobile.textContent = MOBILE_INFO[player.mobile].label;
       element.append(name, mobile);
       return element;
     }));
-    ($('start') as HTMLButtonElement).disabled = state.hostId !== playerId || state.players.length < 2;
-    $('lobby-status').textContent = `${state.players.length}/4 คนเข้าห้องแล้ว`;
+    ($('start') as HTMLButtonElement).disabled = state.hostId !== playerId || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && state.players.length !== 4);
+    $('lobby-status').textContent = `${state.players.filter(player => player.connected).length}/4 คนเข้าห้องแล้ว${state.mode === 'teams' ? ' · ทีม A/B สลับตามลำดับเข้าห้อง' : ''}`;
     return;
   }
   $('player-strip').replaceChildren(...state.players.map(player => {
@@ -349,7 +390,7 @@ function render(state: GameState): void {
     portrait.src = `/assets/characters/${player.mobile}.png`; portrait.alt = MOBILE_INFO[player.mobile].label;
     const info = document.createElement('div'); info.className = 'player-info';
     const head = document.createElement('div'); head.className = 'player-head';
-    const name = document.createElement('b'); name.textContent = player.name;
+    const name = document.createElement('b'); name.textContent = player.name + (state.mode === 'teams' ? ` · ${player.team === 0 ? 'A' : 'B'}` : '');
     const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/100`;
     head.append(name, meta);
     const track = document.createElement('div'); track.className = 'hp-track';
@@ -361,26 +402,82 @@ function render(state: GameState): void {
   $('turn').textContent = `TURN ${String(state.turn).padStart(2, '0')}`;
   $('turn-banner').textContent = state.activeId === playerId ? 'เทิร์นของคุณ • เล็งแล้ว FIRE' : state.message;
   const me = state.players.find(player => player.id === playerId);
-  const canAct = state.phase === 'playing' && state.activeId === playerId && !!me && me.hp > 0;
+  const canAct = socket?.readyState === WebSocket.OPEN && !resumePending && state.phase === 'playing' && state.activeId === playerId && !!me && me.hp > 0;
   if (canAct && state.turn !== lastOwnTurn) {
     lastOwnTurn = state.turn;
     releaseMovement();
+    setTeleportMode(false);
+    setSpecialMode(false);
     angleInput.value = '45';
     setPower(20);
     updateAim();
   }
   for (const id of ['angle', 'fire']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
+  ($('item-special') as HTMLButtonElement).disabled = !canAct || !me?.specialAvailable;
+  $('count-special').textContent = me?.specialAvailable ? '1' : '0';
   document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => { button.disabled = !canAct; });
   for (const item of ['double', 'repair', 'teleport'] as const) {
     ($<HTMLButtonElement>(`item-${item}`)).disabled = !canAct || !me?.items[item] || (item === 'double' && me.doubleArmed);
     $(`count-${item}`).textContent = String(me?.items[item] ?? 0);
   }
   $('item-double').classList.toggle('selected', !!me?.doubleArmed);
-  if (!canAct) { endCharge(false); setTeleportMode(false); releaseMovement(); }
-  if (state.phase === 'finished') $('result-title').textContent = state.winnerId ? `${state.players.find(player => player.id === state.winnerId)?.name ?? ''} ชนะ!` : 'เสมอ!';
+  if (!canAct) { endCharge(false); setTeleportMode(false); setSpecialMode(false); releaseMovement(); }
+  if (state.phase === 'finished') {
+    $('result-title').textContent = state.mode === 'teams' && state.winnerTeam !== null ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : state.winnerId ? `${state.players.find(player => player.id === state.winnerId)?.name ?? ''} ชนะ!` : 'เสมอ!';
+    const connectedCount = state.players.filter(player => player.connected).length;
+    const enoughPlayers = connectedCount >= 2 && (state.mode !== 'teams' || connectedCount === 4);
+    $('ready-status').textContent = enoughPlayers ? `พร้อมเล่นอีกครั้ง ${state.rematchReady.length}/${connectedCount} คน` : state.mode === 'teams' ? 'รีแมตช์ทีมต้องมีครบ 4 คน' : 'รีแมตช์ต้องมีอย่างน้อย 2 คน';
+    $('rematch-ready').textContent = state.rematchReady.includes(playerId) ? 'ยกเลิกพร้อม' : 'พร้อมเล่นอีกครั้ง';
+    ($('rematch-ready') as HTMLButtonElement).disabled = !enoughPlayers;
+  }
   updateAim();
   updateTimer();
 }
+function renderSummary(summary: MatchSummary): void {
+  matchSummary = summary;
+  const table = document.createElement('table');
+  const head = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  for (const label of ['ผู้เล่น', 'ยิง/โดน', 'ดาเมจ', 'รับดาเมจ', 'ไอเทม']) {
+    const cell = document.createElement('th'); cell.textContent = label; headerRow.append(cell);
+  }
+  head.append(headerRow);
+  const body = document.createElement('tbody');
+  for (const player of summary.players) {
+    const row = document.createElement('tr');
+    for (const value of [player.name + (summary.mode === 'teams' ? ` (${player.team === 0 ? 'A' : 'B'})` : ''), `${player.stats.shots}/${player.stats.hits}`, String(player.stats.damageDealt), String(player.stats.damageTaken), `${player.stats.itemsUsed} · เก็บ ${player.stats.pickups}`]) {
+      const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+    }
+    body.append(row);
+  }
+  table.append(head, body);
+  $('result-stats').replaceChildren(table);
+  ($('replay-start') as HTMLButtonElement).disabled = summary.shots.length === 0;
+}
+function showReplay(index: number): void {
+  if (!matchSummary?.shots.length) return;
+  replayIndex = Math.max(0, Math.min(matchSummary.shots.length - 1, index));
+  const replay = matchSummary.shots[replayIndex];
+  const shooter = matchSummary.players.find(player => player.id === replay.shooterId)?.name ?? 'ผู้เล่น';
+  $('replay-label').textContent = `${replayIndex + 1}/${matchSummary.shots.length} · เทิร์น ${replay.turn} · ${shooter}`;
+  ($('replay-prev') as HTMLButtonElement).disabled = replayIndex === 0;
+  ($('replay-next') as HTMLButtonElement).disabled = replayIndex === matchSummary.shots.length - 1;
+  replayOpen = true;
+  $('result').classList.add('hidden');
+  $('hud').classList.add('hidden');
+  $('replay-controls').classList.remove('hidden');
+  scene.showShot(replay.shot, gameState ?? undefined);
+}
+$('rematch-ready').addEventListener('click', () => send({ type: 'rematch-ready', ready: !gameState?.rematchReady.includes(playerId) }));
+$('replay-start').addEventListener('click', () => showReplay(0));
+$('replay-prev').addEventListener('click', () => showReplay(replayIndex - 1));
+$('replay-next').addEventListener('click', () => showReplay(replayIndex + 1));
+$('replay-close').addEventListener('click', () => {
+  replayOpen = false;
+  $('replay-controls').classList.add('hidden');
+  $('result').classList.remove('hidden');
+  $('hud').classList.remove('hidden');
+});
 function updateTimer(): void {
   if (!gameState || gameState.phase !== 'playing') return;
   const seconds = Math.max(0, Math.ceil((gameState.deadline - Date.now()) / 1000));
@@ -388,19 +485,67 @@ function updateTimer(): void {
 }
 setInterval(updateTimer, 100);
 
-socket.addEventListener('message', event => {
-  try {
-    const message = JSON.parse(event.data) as ServerEvent;
-    if (message.type === 'welcome') {
-      playerId = message.id;
-      history.replaceState(null, '', `/?room=${message.code}`);
-    } else if (message.type === 'state') render(message.state);
-    else if (message.type === 'shot') { scene.showShot(message.shot); if (message.shot.kind === 'damage') playEffect(fireSound); }
-    else if (message.type === 'hit') { clearTimeout(hitTimer); hitTimer = window.setTimeout(() => playEffect(hitSound), 820); }
-    else if (message.type === 'item-used') playEffect(itemSound);
-    else if (message.type === 'error') { toast(message.message); $('landing-error').textContent = message.message; }
-  } catch { toast('อ่านข้อมูลจากเซิร์ฟเวอร์ไม่สำเร็จ'); }
-});
-socket.addEventListener('close', () => { stopMovementSound(); bgm.pause(); toast('การเชื่อมต่อขาด กรุณารีเฟรชหน้าเว็บ'); });
 const roomFromLink = new URLSearchParams(location.search).get('room');
 if (roomFromLink) ($('room-code') as HTMLInputElement).value = roomFromLink.toUpperCase();
+function savedSession(): { code: string; token: string } | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null');
+    return saved && typeof saved.code === 'string' && typeof saved.token === 'string' ? saved : null;
+  } catch { return null; }
+}
+function connect(): void {
+  clearTimeout(reconnectTimer);
+  const connection = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
+  socket = connection;
+  connection.addEventListener('open', () => {
+    reconnectAttempt = 0;
+    const saved = savedSession();
+    if (saved && (!roomFromLink || roomFromLink.toUpperCase() === saved.code)) {
+      resumePending = true;
+      send({ type: 'resume', token: saved.token });
+    } else {
+      if (saved) { try { sessionStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable. */ } }
+      $('connection-status').classList.add('hidden');
+    }
+  });
+  connection.addEventListener('message', event => {
+    try {
+      const message = JSON.parse(event.data) as ServerEvent;
+      if (message.type === 'welcome') {
+        playerId = message.id;
+        resumePending = false;
+        try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ code: message.code, token: message.token })); } catch { /* Storage can be unavailable. */ }
+        history.replaceState(null, '', `/?room=${message.code}`);
+        $('connection-status').classList.add('hidden');
+        if (message.resumed) { audioWantsStart = true; startBgm(); toast('กลับเข้าห้องแล้ว'); }
+      } else if (message.type === 'state') render(message.state);
+      else if (message.type === 'shot') { scene.showShot(message.shot); if (message.shot.kind === 'damage') playEffect(fireSound); }
+      else if (message.type === 'hit') { clearTimeout(hitTimer); hitTimer = window.setTimeout(() => playEffect(hitSound), 820); }
+      else if (message.type === 'item-used' || message.type === 'item-picked') {
+        playEffect(itemSound);
+        if (message.type === 'item-picked' && message.playerId === playerId) toast('เก็บไอเทมได้แล้ว');
+      } else if (message.type === 'match-summary') renderSummary(message.summary);
+      else if (message.type === 'error') {
+        toast(message.message);
+        $('landing-error').textContent = message.message;
+        if (resumePending) {
+          resumePending = false;
+          try { sessionStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable. */ }
+          gameState = null; playerId = '';
+          $('landing').classList.remove('hidden');
+          $('lobby').classList.add('hidden'); $('hud').classList.add('hidden'); $('result').classList.add('hidden');
+          $('connection-status').classList.add('hidden');
+          history.replaceState(null, '', '/');
+        }
+      }
+    } catch { toast('อ่านข้อมูลจากเซิร์ฟเวอร์ไม่สำเร็จ'); }
+  });
+  connection.addEventListener('close', () => {
+    if (socket !== connection || leavingRoom) return;
+    stopMovementSound(); bgm.pause(); releaseMovement(); endCharge(false);
+    $('connection-status').classList.remove('hidden');
+    reconnectTimer = window.setTimeout(connect, Math.min(1000 * 2 ** reconnectAttempt++, 8000));
+  });
+  connection.addEventListener('error', () => connection.close());
+}
+connect();

@@ -10,14 +10,17 @@ An original side-view, turn-based artillery game for 2–4 friends in a private 
 - Adjust the 10–80 degree aim from the Mobile's front with the up and down arrow keys. Hold Fire or Space to charge power smoothly from 20% to 100% over 2.4 seconds, then release to shoot. The shot starts at the front of the Mobile, and the angle accounts for the terrain slope beneath it. Wind changes between turns and accelerates shots horizontally. There is no trajectory preview; the server computes the actual shot.
 - Loom fires a precise thread orb with a moderate blast. Manta fires two diverging aqua seeds. Borer fires a heavy drill shell with a wider crater. Explosions damage players within a radius and deform the ground; Mobiles settle onto the new surface.
 - Each player begins with one of each item. Double boosts the next shot and can be armed during the turn. Repair restores 28 HP and spends the turn. Teleport arms a portal projectile using the same aim and power controls as a normal shot. The Mobile moves to its unoccupied ground impact point and spends the turn.
-- A player at zero HP is out. The last living player wins. If all remaining players are eliminated by one shot, the round is a draw. A disconnected player forfeits their place in an active round.
+- A player at zero HP is out. The last living player wins in free for all mode. In 2v2, alternating join order assigns teams and teammates cannot damage each other. The last living team wins. If all remaining players are eliminated by one shot, the round is a draw.
+- Each Mobile has one special shot per round: Loom trades blast radius for precise damage, Manta splits into three shots, and Borer makes a larger blast. Every eighth turn drops a random item. A player can pick it up only when the matching item slot is empty.
+- Players disconnected for up to 45 seconds can resume using a browser session token. Their active turn advances immediately. After the grace period, they are eliminated from an active match. All connected players may mark themselves ready for a rematch in the same room.
 - The map theme and terrain seed are randomized on every start. The first version has Cloud Reef, Clockwork Orchard, and Glass Dunes.
 
 ## Technical scope
 
 - Phaser 3 + TypeScript + Vite for the 2D playfield; HTML/CSS for lobby and HUD.
 - Node.js + WebSocket server owns rooms, turn timer, terrain, physics, damage, items, and victory. Browser clients send actions and render snapshots.
-- One Node process holds rooms in memory. No accounts, matchmaking, persistence, or public deployment in this version. Reconnection after a dropped connection is not yet supported.
+- One Node process holds rooms, recent shots, and match statistics in memory. The result screen shows player statistics and a shot-path replay. There are no accounts, matchmaking, persistent records, or public deployment in this version.
+- WebSocket upgrades validate origin; commands have payload and rate limits; ping/pong removes stale sockets. `ALLOWED_ORIGINS` can restrict deployment origins explicitly.
 - Generated backgrounds, transparent Mobile sprites, item icons, and rock textures are rendered in Phaser. The server's numeric terrain and hit detection remain deterministic and independent of those images.
 
 ## Art
