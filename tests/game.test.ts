@@ -77,8 +77,8 @@ test('five percent is a valid firing power', () => {
 test('mixed equipment adds five points per piece to attack, defense, or HP', () => {
   const initial = createState('GEAR55', 'p1', 'One', 'halo');
   initial.players.push(makePlayer('p2', 'Two', 'cinder'));
-  initial.players[0].equipment = { hat: 'attack', armor: 'attack', boots: 'attack' };
-  initial.players[1].equipment = { hat: 'defense', armor: 'defense', boots: 'health' };
+  initial.players[0].equipment = { hat: 'attack', armor: 'attack', flag: 'attack' };
+  initial.players[1].equipment = { hat: 'defense', armor: 'defense', flag: 'health' };
   startRound(initial, 18, 1000);
   assert.equal(equipmentBonus(initial.players[0], 'attack'), 15);
   assert.equal(equipmentBonus(initial.players[1], 'defense'), 10);
@@ -89,10 +89,10 @@ test('mixed equipment adds five points per piece to attack, defense, or HP', () 
   initial.players[1].x = probe.impacts[0].x;
   initial.players[1].y = groundAt(initial.terrain, probe.impacts[0].x) - 13;
   const unarmored = structuredClone(initial);
-  unarmored.players[1].equipment = { hat: null, armor: null, boots: null };
+  unarmored.players[1].equipment = { hat: null, armor: null, flag: null };
   unarmored.players[1].hp = 100;
   const base = structuredClone(unarmored);
-  base.players[0].equipment = { hat: null, armor: null, boots: null };
+  base.players[0].equipment = { hat: null, armor: null, flag: null };
   const boosted = fireShot(initial, 'p1', 45, 45, 1100);
   const plain = fireShot(unarmored, 'p1', 45, 45, 1100);
   const baseShot = fireShot(base, 'p1', 45, 45, 1100);

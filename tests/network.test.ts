@@ -79,14 +79,20 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       await host.waitFor(e => e.type === 'state' && e.state.players[0]?.mobile === 'bramble' && e.state.players[1]?.mobile === 'cinder');
       clients[1].send({ type: 'equip', slot: 'hat', set: 'health' });
       clients[1].send({ type: 'equip', slot: 'armor', set: 'defense' });
-      clients[1].send({ type: 'equip', slot: 'boots', set: 'attack' });
-      await host.waitFor(e => e.type === 'state' && e.state.players[1]?.equipment.boots === 'attack');
+      clients[1].send({ type: 'equip', slot: 'flag', set: 'attack' });
+      await clients[1].waitFor(e => e.type === 'state' && e.state.players[1]?.equipment.flag === 'attack');
+      const hiddenLoadout = await host.waitFor(e => e.type === 'state' && e.state.players[1]?.equipment.flag === null);
+      assert.equal(hiddenLoadout.type, 'state');
+      assert.deepEqual(hiddenLoadout.state.players[1].equipment, { hat: null, armor: null, flag: null });
+      assert.equal(hiddenLoadout.state.players[1].hp, 100);
       if (count === 2) {
         host.send({ type: 'start' });
         await host.waitFor(e => e.type === 'error' && /กดพร้อม/.test(e.message));
       }
       for (let i = 1; i < count; i++) clients[i].send({ type: 'lobby-ready', ready: true });
-      await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      const lobbyState = await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      assert.equal(lobbyState.type, 'state');
+      assert.deepEqual(lobbyState.state.players[1].equipment, { hat: null, armor: null, flag: null });
       if (count === 2) {
         clients[1].send({ type: 'select', mobile: 'manta' });
         await clients[1].waitFor(e => e.type === 'error' && /ยกเลิกพร้อม/.test(e.message));
@@ -99,7 +105,7 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(event.state.activeId, welcome.id);
         assert.equal(event.state.mode, count === 4 ? 'teams' : 'ffa');
         assert.equal(event.state.players[1].hp, 105);
-        assert.deepEqual(event.state.players[1].equipment, { hat: 'health', armor: 'defense', boots: 'attack' });
+        assert.deepEqual(event.state.players[1].equipment, { hat: 'health', armor: 'defense', flag: 'attack' });
         if (count === 3) {
           assert.equal(event.state.players[2].hp, event.state.players[2].mobile === 'aegis' ? 150 : 100);
           assert.equal(event.state.players[2].randomUsed, true);

@@ -43,6 +43,7 @@ const hitSound = new Audio('/assets/sound/HIT.mp3');
 const dropSound = new Audio('/assets/sound/DROP_ITEM.mp3');
 const clockSound = new Audio('/assets/sound/CLOCK_TICKING.mp3');
 const windSound = new Audio('/assets/sound/WIND.mp3');
+const meteorSound = new Audio('/assets/sound/METEOR.mp3');
 bgm.loop = true;
 movementSound.loop = true;
 clockSound.loop = true;
@@ -54,6 +55,7 @@ hitSound.volume = 0.7;
 dropSound.volume = 0.7;
 clockSound.volume = 0.55;
 windSound.volume = 0.65;
+meteorSound.volume = 0.7;
 let bgmEnabled = true;
 let sfxEnabled = true;
 let audioWantsStart = false;
@@ -317,7 +319,7 @@ function setSfxEnabled(enabled: boolean): void {
   sfxEnabled = enabled;
   sfxToggle.checked = enabled;
   if (!enabled) {
-    fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); stopClockSound();
+    fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); meteorSound.pause(); stopClockSound();
     clearTimeout(hitTimer);
     stopMovementSound();
   }
@@ -403,6 +405,7 @@ function render(state: GameState): void {
     const newDrop = state.drops.find(drop => !previous.drops.some(old => old.id === drop.id));
     if (newDrop) { playEffect(dropSound); toast('ไอเทมตกลงมาจากฟ้า! เดินไปเก็บเมื่อช่องว่าง'); }
     if (state.meteor && state.meteor.turn !== previous.meteor?.turn) {
+      playEffect(meteorSound);
       toast(state.meteor.hitIds.length ? 'อุกกาบาตตก! มี Mobile โดนโจมตี 20 HP' : 'อุกกาบาตตก! พื้นสนามถูกทำลาย');
       if (state.meteor.hitIds.length) playEffect(hitSound);
     }
@@ -448,16 +451,9 @@ function render(state: GameState): void {
       element.className = 'lobby-player';
       const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
       const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? '🎲 รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
-      const gear = document.createElement('span'); gear.className = 'lobby-player-gear';
-      for (const slot of ['hat', 'armor', 'boots'] as const) {
-        const set = player.equipment[slot];
-        if (!set) continue;
-        const icon = document.createElement('img'); icon.src = `/assets/equipment/${set}-${slot}.png`; icon.alt = `${slot} ${set}`;
-        gear.append(icon);
-      }
       const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
       ready.textContent = player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
-      element.append(name, mobile, gear, ready);
+      element.append(name, mobile, ready);
       return element;
     }));
     $('start').classList.toggle('hidden', !isHost);
@@ -475,7 +471,7 @@ function render(state: GameState): void {
     const portrait = document.createElement('img'); portrait.className = 'player-portrait';
     portrait.src = `/assets/characters/${player.mobile}.png`; portrait.alt = MOBILE_INFO[player.mobile].label;
     const portraitWrap = document.createElement('div'); portraitWrap.className = 'player-portrait-wrap'; portraitWrap.append(portrait);
-    for (const slot of ['hat', 'armor', 'boots'] as const) {
+    for (const slot of ['hat', 'armor', 'flag'] as const) {
       const set = player.equipment[slot];
       if (!set) continue;
       const gear = document.createElement('img'); gear.className = `player-gear player-gear-${slot}`;

@@ -13,7 +13,7 @@ export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport';
 export type DropKind = ItemKind | 'special';
 export type MatchMode = 'ffa' | 'teams' | 'practice';
-export type EquipmentSlot = 'hat' | 'armor' | 'boots';
+export type EquipmentSlot = 'hat' | 'armor' | 'flag';
 export type EquipmentSet = 'attack' | 'defense' | 'health';
 export type Equipment = Record<EquipmentSlot, EquipmentSet | null>;
 export type Team = 0 | 1;
@@ -107,7 +107,7 @@ export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; dam
   aegis: { label: 'Aegis', color: 0x72d9f4, damage: 34, radius: 59, crater: 24, maxHp: 150 },
 };
 export const ORDINARY_MOBILES: OrdinaryMobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder'];
-export const EQUIPMENT_SLOTS: EquipmentSlot[] = ['hat', 'armor', 'boots'];
+export const EQUIPMENT_SLOTS: EquipmentSlot[] = ['hat', 'armor', 'flag'];
 export const EQUIPMENT_SETS: EquipmentSet[] = ['attack', 'defense', 'health'];
 export function equipmentBonus(player: PlayerState, set: EquipmentSet): number {
   return EQUIPMENT_SLOTS.filter(slot => player.equipment[slot] === set).length * 5;
@@ -177,7 +177,7 @@ export function makePlayer(id: string, name: string, mobile: MobileKind): Player
   return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
     items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1,
     team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false,
-    equipment: { hat: null, armor: null, boots: null } };
+    equipment: { hat: null, armor: null, flag: null } };
 }
 
 export function startRound(state: GameState, seed: number, now: number): void {

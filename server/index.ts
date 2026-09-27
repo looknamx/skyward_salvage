@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, movePlayer, ORDINARY_MOBILES, randomMobileFromRoll, resetPractice, returnToLobby, startRound, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomMobileFromRoll, resetPractice, returnToLobby, startRound, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -30,7 +30,16 @@ function broadcast(code: string, event: ServerEvent): void {
   for (const [socket, client] of clients) if (client.code === code) send(socket, event);
 }
 
-function stateBroadcast(state: GameState): void { broadcast(state.code, { type: 'state', state }); }
+function stateBroadcast(state: GameState): void {
+  for (const [socket, client] of clients) {
+    if (client.code !== state.code) continue;
+    if (state.phase !== 'lobby') { send(socket, { type: 'state', state }); continue; }
+    const privateState = { ...state, players: state.players.map(player => player.id === client.id ? player : {
+      ...player, equipment: { hat: null, armor: null, flag: null }, hp: MOBILE_INFO[player.mobile].maxHp,
+    }) };
+    send(socket, { type: 'state', state: privateState });
+  }
+}
 function error(ws: WebSocket, message: string): void { send(ws, { type: 'error', message }); }
 function sessionKey(session: Session): string { return `${session.code}:${session.id}`; }
 function makeSession(id: string, code: string): Session {

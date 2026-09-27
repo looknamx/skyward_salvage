@@ -8,7 +8,7 @@ const backgrounds = {
   'glass-dunes': '/assets/environment/glass-dunes.png',
 };
 const kinds: MobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder', 'aegis'];
-const gearSlots: EquipmentSlot[] = ['hat', 'armor', 'boots'];
+const gearSlots: EquipmentSlot[] = ['hat', 'armor', 'flag'];
 const surfaceColors = {
   'cloud-reef': { shadow: '#173c50', rim: '#7dc8c6', grass: '#f1eee0', flower: '#ef8d78', water: '#a4e8ed' },
   'clockwork-orchard': { shadow: '#493645', rim: '#cc9c67', grass: '#f6dfad', flower: '#f3a36c', water: '#b5e4ed' },
@@ -272,7 +272,7 @@ export class GameScene extends Phaser.Scene {
           pieces[slot] = piece;
         }
         if (piece.texture.key !== key) piece.setTexture(key);
-        const placement = slot === 'hat' ? { x: -7, y: -33, w: 39, h: 39 } : slot === 'armor' ? { x: 0, y: 5, w: 59, h: 42 } : { x: 0, y: 36, w: 66, h: 31 };
+        const placement = slot === 'hat' ? { x: -7, y: -33, w: 39, h: 39 } : slot === 'armor' ? { x: 0, y: 5, w: 59, h: 42 } : { x: -42, y: -29, w: 48, h: 58 };
         const offsetX = placement.x * player.facing;
         piece.setPosition(image.x + offsetX * Math.cos(image.rotation) - placement.y * Math.sin(image.rotation), image.y + offsetX * Math.sin(image.rotation) + placement.y * Math.cos(image.rotation));
         piece.setDisplaySize(placement.w, placement.h).setRotation(image.rotation).setFlipX(player.facing < 0);
