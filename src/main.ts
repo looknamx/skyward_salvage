@@ -44,6 +44,7 @@ const dropSound = new Audio('/assets/sound/DROP_ITEM.mp3');
 const clockSound = new Audio('/assets/sound/CLOCK_TICKING.mp3');
 const windSound = new Audio('/assets/sound/WIND.mp3');
 const meteorSound = new Audio('/assets/sound/METEOR.mp3');
+const slotSound = new Audio('/assets/sound/SLOT.mp3');
 bgm.loop = true;
 movementSound.loop = true;
 clockSound.loop = true;
@@ -56,6 +57,7 @@ dropSound.volume = 0.7;
 clockSound.volume = 0.55;
 windSound.volume = 0.65;
 meteorSound.volume = 0.7;
+slotSound.volume = 0.6;
 let bgmEnabled = true;
 let sfxEnabled = true;
 let audioWantsStart = false;
@@ -129,6 +131,7 @@ function chooseReelValue(reel: ReelId, value: string): void {
     if (me.randomUsed) return;
     pickMobile(value as OrdinaryMobileKind);
   } else send({ type: 'equip', slot: reel, set: value === 'none' ? null : value as EquipmentSet });
+  playEffect(slotSound);
   reelSelection[reel] = value;
   const element = reelElements[reel];
   element.classList.remove('is-spinning');
@@ -404,7 +407,7 @@ function setSfxEnabled(enabled: boolean): void {
   sfxEnabled = enabled;
   sfxToggle.checked = enabled;
   if (!enabled) {
-    fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); meteorSound.pause(); stopClockSound();
+    fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); meteorSound.pause(); slotSound.pause(); stopClockSound();
     clearTimeout(hitTimer);
     stopMovementSound();
   }

@@ -308,3 +308,19 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
   .lobby-card>.primary{margin:2px 0;padding:4px}
   .lobby-card .status{margin:2px 0}
 }
+
+/* The battle canvas is letterboxed to 16:9. The ready room uses the whole viewport. */
+#lobby.overlay{position:fixed;inset:0;width:100vw;height:100dvh;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+#lobby .lobby-card{flex:0 1 auto;max-width:100%;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#c5a76c #19354d}
+@media(min-width:1001px) and (max-height:760px){
+  #lobby .slot-reel-window{grid-template-rows:35px 68px 35px}
+  #lobby .slot-machine{margin:5px 0;padding:7px 10px 5px}
+  #lobby .slot-machine-heading{margin-bottom:4px}
+  #lobby .slot-machine .equipment-stats{margin-top:3px}
+}
+@media(max-width:1000px) and (max-height:520px) and (orientation:landscape){
+  #lobby .slot-reel-window{grid-template-rows:25px 38px 25px}
+  #lobby .slot-machine-heading span{display:none}
+  #lobby .lobby-card .invite{height:32px}
+  #lobby .mode-select select{padding:2px 6px;font-size:11px}
+}
