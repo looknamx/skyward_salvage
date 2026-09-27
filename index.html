@@ -11,13 +11,20 @@
       <div id="game" aria-label="สนามต่อสู้"></div>
       <section id="landing" class="overlay">
         <div class="landing-card">
-          <p class="eyebrow">เกมยิงผลัดกันเล่น • 2–4 คน</p>
-          <h1>SKYWARD<br><span>SALVAGE</span></h1>
-          <p class="intro">เล็งข้ามหมู่เกาะลอยฟ้า อ่านทิศลม และยิงให้แม่นก่อนหมดเทิร์น</p>
-          <label>ชื่อผู้เล่น <input id="name" maxlength="18" placeholder="ชื่อของคุณ" autocomplete="nickname" /></label>
-          <div class="room-actions">
-            <button id="create" class="primary">สร้างห้อง</button>
-            <div class="join-row"><input id="room-code" maxlength="6" placeholder="รหัสห้อง" aria-label="รหัสห้อง" /><button id="join">เข้าห้อง</button></div>
+          <div class="landing-copy">
+            <p class="eyebrow">เกมยิงผลัดกันเล่น • 2–4 คน</p>
+            <h1>SKYWARD<br><span>SALVAGE</span></h1>
+            <p class="intro">เล็งข้ามหมู่เกาะลอยฟ้า อ่านทิศลม และยิงให้แม่นก่อนหมดเทิร์น</p>
+          </div>
+          <div class="landing-form">
+            <label for="name">ชื่อผู้เล่น <input id="name" maxlength="18" placeholder="ชื่อของคุณ" autocomplete="nickname" /></label>
+            <div class="room-actions">
+              <button id="create" class="primary" type="button">สร้างห้องใหม่</button>
+              <div class="join-section">
+                <span class="join-label">หรือเข้าห้องของเพื่อน</span>
+                <div class="join-row"><input id="room-code" maxlength="6" placeholder="รหัสห้อง 6 ตัว" aria-label="รหัสห้อง" /><button id="join" type="button">เข้าห้อง</button></div>
+              </div>
+            </div>
           </div>
           <p id="landing-error" class="error" role="alert"></p>
         </div>
