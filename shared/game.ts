@@ -52,8 +52,7 @@ export interface GameState {
 export interface Point { x: number; y: number }
 export interface Impact extends Point { radius: number; damage: number }
 export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[] }
-export interface ReplayShot { turn: number; shooterId: string; shot: ShotResult }
-export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[]; shots: ReplayShot[] }
+export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
 export type ClientAction =
   | { type: 'create'; name: string; mobile: MobileKind }

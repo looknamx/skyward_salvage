@@ -19,7 +19,7 @@ An original side-view, turn-based artillery game for 2–4 friends in a private 
 
 - Phaser 3 + TypeScript + Vite for the 2D playfield; HTML/CSS for lobby and HUD.
 - Node.js + WebSocket server owns rooms, turn timer, terrain, physics, damage, items, and victory. Browser clients send actions and render snapshots.
-- One Node process holds rooms, recent shots, and match statistics in memory. The result screen shows player statistics and a shot-path replay. There are no accounts, matchmaking, persistent records, or public deployment in this version.
+- One Node process holds rooms and match statistics in memory. The result screen shows player statistics. There are no accounts, matchmaking, persistent records, or public deployment in this version.
 - WebSocket upgrades validate origin; commands have payload and rate limits; ping/pong removes stale sockets. `ALLOWED_ORIGINS` can restrict deployment origins explicitly.
 - Generated backgrounds, transparent Mobile sprites, item icons, and rock textures are rendered in Phaser. The server's numeric terrain and hit detection remain deterministic and independent of those images.
 

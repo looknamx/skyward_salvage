@@ -4,7 +4,7 @@ import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createState, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, movePlayer, startRound, turnPlayer, useItem } from '../shared/game.ts';
-import type { ClientAction, GameState, MatchSummary, MobileKind, ReplayShot, ServerEvent } from '../shared/game.ts';
+import type { ClientAction, GameState, MatchSummary, MobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
 const RECONNECT_GRACE_MS = 45_000;
@@ -16,7 +16,6 @@ const clients = new Map<WebSocket, Session>();
 const sessions = new Map<string, Session>();
 const movement = new Map<string, { playerId: string; direction: -1 | 1 }>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const replayShots = new Map<string, ReplayShot[]>();
 const summarySent = new Set<string>();
 const heartbeats = new WeakMap<WebSocket, boolean>();
 const rateLimits = new WeakMap<WebSocket, { started: number; count: number }>();
@@ -47,14 +46,7 @@ function makeSummary(state: GameState): MatchSummary {
   return {
     code: state.code, mode: state.mode, winnerId: state.winnerId, winnerTeam: state.winnerTeam,
     players: state.players.map(player => ({ id: player.id, name: player.name, mobile: player.mobile, team: player.team, stats: { ...player.stats } })),
-    shots: replayShots.get(state.code) ?? [],
   };
-}
-function recordShot(code: string, replay: ReplayShot): void {
-  const shots = replayShots.get(code) ?? [];
-  shots.push(replay);
-  if (shots.length > 40) shots.shift();
-  replayShots.set(code, shots);
 }
 function broadcastSummaryIfFinished(state: GameState): void {
   if (state.phase !== 'finished' || summarySent.has(state.code)) return;
@@ -64,7 +56,6 @@ function broadcastSummaryIfFinished(state: GameState): void {
 function discardRoom(code: string): void {
   rooms.delete(code);
   movement.delete(code);
-  replayShots.delete(code);
   summarySent.delete(code);
   for (const [token, session] of sessions) if (session.code === code) sessions.delete(token);
   for (const [key, timer] of reconnectTimers) if (key.startsWith(`${code}:`)) { clearTimeout(timer); reconnectTimers.delete(key); }
@@ -77,7 +68,6 @@ function tryRematch(state: GameState): void {
   if (!connected.every(player => state.rematchReady.includes(player.id))) return;
   state.players = connected;
   if (!connected.some(player => player.id === state.hostId)) state.hostId = connected[0].id;
-  replayShots.set(state.code, []);
   summarySent.delete(state.code);
   startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
 }
@@ -190,7 +180,6 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เริ่มได้');
     if (state.phase !== 'lobby') throw new Error('เกมเริ่มไปแล้ว');
     startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
-    replayShots.set(state.code, []);
     summarySent.delete(state.code);
   } else if (action.type === 'rematch-ready') {
     if (state.phase !== 'finished') throw new Error('ยังไม่จบรอบ');
@@ -215,18 +204,14 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     movement.delete(state.code);
     const hpBefore = new Map(state.players.map(target => [target.id, target.hp]));
     if (action.special !== undefined && typeof action.special !== 'boolean') throw new Error('ชนิดกระสุนไม่ถูกต้อง');
-    const firedTurn = state.turn;
     const shot = fireShot(state, current.id, Number(action.angle), Number(action.power), Date.now(), action.special === true);
-    recordShot(state.code, { turn: firedTurn, shooterId: current.id, shot });
     broadcast(state.code, { type: 'shot', shot });
     if (state.players.some(target => target.hp < (hpBefore.get(target.id) ?? target.hp))) broadcast(state.code, { type: 'hit' });
   } else if (action.type === 'item') {
     if (action.item === 'teleport') {
       movement.delete(state.code);
       const oldDrops = [...state.drops];
-      const firedTurn = state.turn;
       const shot = fireTeleport(state, current.id, Number(action.angle), Number(action.power), Date.now());
-      recordShot(state.code, { turn: firedTurn, shooterId: current.id, shot });
       broadcast(state.code, { type: 'item-used', item: 'teleport' });
       broadcast(state.code, { type: 'shot', shot });
       const picked = oldDrops.find(drop => !state.drops.some(currentDrop => currentDrop.id === drop.id));

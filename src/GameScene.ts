@@ -75,16 +75,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  showShot(shot: ShotResult, snapshot?: GameState): void {
-    if (snapshot) this.applyState(snapshot);
+  showShot(shot: ShotResult): void {
     this.effect = { data: shot, started: this.time.now };
     this.pendingState = null;
-  }
-
-  clearShot(): void {
-    this.effect = null;
-    this.pendingState = null;
-    this.effects?.clear();
   }
 
   update(): void {

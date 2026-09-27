@@ -20,9 +20,6 @@ let gameState: GameState | null = null;
 let selectedMobile: MobileKind = 'loom';
 let teleportMode = false;
 let specialMode = false;
-let matchSummary: MatchSummary | null = null;
-let replayOpen = false;
-let replayIndex = 0;
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
 const pressed = { left: false, right: false };
@@ -44,13 +41,18 @@ const fireSound = new Audio('/assets/sound/FIRE.mp3');
 const itemSound = new Audio('/assets/sound/USE_ITEM.mp3');
 const movementSound = new Audio('/assets/sound/MOVEMENT.mp3');
 const hitSound = new Audio('/assets/sound/HIT.mp3');
+const dropSound = new Audio('/assets/sound/DROP_ITEM.mp3');
+const clockSound = new Audio('/assets/sound/CLOCK_TICKING.mp3');
 bgm.loop = true;
 movementSound.loop = true;
+clockSound.loop = true;
 bgm.volume = 0.35;
 fireSound.volume = 0.7;
 itemSound.volume = 0.7;
 movementSound.volume = 0.45;
 hitSound.volume = 0.7;
+dropSound.volume = 0.7;
+clockSound.volume = 0.55;
 let soundEnabled = true;
 let audioWantsStart = false;
 let movementStopTimer = 0;
@@ -63,6 +65,10 @@ function playEffect(sound: HTMLAudioElement): void {
   if (!soundEnabled) return;
   try { sound.currentTime = 0; } catch { /* The file may still be loading. */ }
   void sound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
+}
+function stopClockSound(): void {
+  clockSound.pause();
+  try { clockSound.currentTime = 0; } catch { /* The file may still be loading. */ }
 }
 function stopMovementSound(): void {
   clearTimeout(movementStopTimer);
@@ -273,7 +279,7 @@ function setSoundEnabled(enabled: boolean): void {
   soundToggle.checked = enabled;
   if (enabled) startBgm();
   else {
-    bgm.pause(); fireSound.pause(); itemSound.pause(); hitSound.pause();
+    bgm.pause(); fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); stopClockSound();
     clearTimeout(hitTimer);
     stopMovementSound();
   }
@@ -346,25 +352,21 @@ window.addEventListener('blur', () => { releaseMovement(); endCharge(false); });
 function render(state: GameState): void {
   const previous = gameState;
   if (previous?.phase === 'finished' && state.phase === 'playing') {
-    scene.clearShot();
-    matchSummary = null;
-    replayOpen = false;
     setTeleportMode(false);
     setSpecialMode(false);
     $('result-stats').replaceChildren();
   }
   if (previous?.phase === 'playing') {
     const newDrop = state.drops.find(drop => !previous.drops.some(old => old.id === drop.id));
-    if (newDrop) toast('ไอเทมตกลงมาจากฟ้า! เดินไปเก็บเมื่อช่องว่าง');
+    if (newDrop) { playEffect(dropSound); toast('ไอเทมตกลงมาจากฟ้า! เดินไปเก็บเมื่อช่องว่าง'); }
   }
   updateMovementSound(gameState, state);
   gameState = state;
   scene.setSnapshot(state, playerId);
   $('landing').classList.add('hidden');
   $('lobby').classList.toggle('hidden', state.phase !== 'lobby');
-  $('hud').classList.toggle('hidden', state.phase === 'lobby' || replayOpen);
-  $('result').classList.toggle('hidden', state.phase !== 'finished' || replayOpen);
-  $('replay-controls').classList.toggle('hidden', !replayOpen);
+  $('hud').classList.toggle('hidden', state.phase === 'lobby');
+  $('result').classList.toggle('hidden', state.phase !== 'finished');
   if (state.phase === 'lobby') {
     $('lobby-code').textContent = state.code;
     const modeSelect = $('match-mode') as HTMLSelectElement;
@@ -434,7 +436,6 @@ function render(state: GameState): void {
   updateTimer();
 }
 function renderSummary(summary: MatchSummary): void {
-  matchSummary = summary;
   const table = document.createElement('table');
   const head = document.createElement('thead');
   const headerRow = document.createElement('tr');
@@ -452,36 +453,15 @@ function renderSummary(summary: MatchSummary): void {
   }
   table.append(head, body);
   $('result-stats').replaceChildren(table);
-  ($('replay-start') as HTMLButtonElement).disabled = summary.shots.length === 0;
-}
-function showReplay(index: number): void {
-  if (!matchSummary?.shots.length) return;
-  replayIndex = Math.max(0, Math.min(matchSummary.shots.length - 1, index));
-  const replay = matchSummary.shots[replayIndex];
-  const shooter = matchSummary.players.find(player => player.id === replay.shooterId)?.name ?? 'ผู้เล่น';
-  $('replay-label').textContent = `${replayIndex + 1}/${matchSummary.shots.length} · เทิร์น ${replay.turn} · ${shooter}`;
-  ($('replay-prev') as HTMLButtonElement).disabled = replayIndex === 0;
-  ($('replay-next') as HTMLButtonElement).disabled = replayIndex === matchSummary.shots.length - 1;
-  replayOpen = true;
-  $('result').classList.add('hidden');
-  $('hud').classList.add('hidden');
-  $('replay-controls').classList.remove('hidden');
-  scene.showShot(replay.shot, gameState ?? undefined);
 }
 $('rematch-ready').addEventListener('click', () => send({ type: 'rematch-ready', ready: !gameState?.rematchReady.includes(playerId) }));
-$('replay-start').addEventListener('click', () => showReplay(0));
-$('replay-prev').addEventListener('click', () => showReplay(replayIndex - 1));
-$('replay-next').addEventListener('click', () => showReplay(replayIndex + 1));
-$('replay-close').addEventListener('click', () => {
-  replayOpen = false;
-  $('replay-controls').classList.add('hidden');
-  $('result').classList.remove('hidden');
-  $('hud').classList.remove('hidden');
-});
 function updateTimer(): void {
-  if (!gameState || gameState.phase !== 'playing') return;
+  if (!gameState || gameState.phase !== 'playing' || !gameState.activeId) { stopClockSound(); return; }
   const seconds = Math.max(0, Math.ceil((gameState.deadline - Date.now()) / 1000));
   $('timer').textContent = `${seconds}s`;
+  if (seconds > 0 && seconds <= 10 && soundEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {
+    if (clockSound.paused) void clockSound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
+  } else if (!clockSound.paused) stopClockSound();
 }
 setInterval(updateTimer, 100);
 
@@ -542,7 +522,7 @@ function connect(): void {
   });
   connection.addEventListener('close', () => {
     if (socket !== connection || leavingRoom) return;
-    stopMovementSound(); bgm.pause(); releaseMovement(); endCharge(false);
+    stopMovementSound(); stopClockSound(); bgm.pause(); releaseMovement(); endCharge(false);
     $('connection-status').classList.remove('hidden');
     reconnectTimer = window.setTimeout(connect, Math.min(1000 * 2 ** reconnectAttempt++, 8000));
   });
