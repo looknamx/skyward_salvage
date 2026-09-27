@@ -181,9 +181,6 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนสุ่ม Mobile');
     if (player.randomUsed) throw new Error('สุ่ม Mobile ได้ครั้งเดียวต่อห้อง');
-    const rolls = randomBytes(8);
-    player.mobile = randomMobileFromRoll(rolls.readUInt32LE(0) / 4294967296, rolls.readUInt32LE(4) / 4294967296);
-    player.hp = MOBILE_INFO[player.mobile].maxHp;
     player.randomUsed = true;
   } else if (action.type === 'lobby-ready') {
     if (state.phase !== 'lobby' || state.hostId === current.id) throw new Error('ผู้เล่นในห้องเท่านั้นที่กดพร้อมได้');
@@ -199,6 +196,11 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เริ่มได้');
     if (state.phase !== 'lobby') throw new Error('เกมเริ่มไปแล้ว');
     startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
+    for (const entrant of state.players.filter(candidate => candidate.randomUsed)) {
+      const rolls = randomBytes(8);
+      entrant.mobile = randomMobileFromRoll(rolls.readUInt32LE(0) / 4294967296, rolls.readUInt32LE(4) / 4294967296);
+      entrant.hp = MOBILE_INFO[entrant.mobile].maxHp;
+    }
     summarySent.delete(state.code);
   } else if (action.type === 'rematch-ready') {
     if (state.phase !== 'finished') throw new Error('ยังไม่จบรอบ');

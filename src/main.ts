@@ -382,6 +382,10 @@ function render(state: GameState): void {
   }
   updateMovementSound(gameState, state);
   gameState = state;
+  if (previous?.phase === 'lobby' && state.phase === 'playing') {
+    const me = state.players.find(player => player.id === playerId);
+    if (me?.randomUsed) toast(`สุ่มได้ ${MOBILE_INFO[me.mobile].label}!`);
+  }
   scene.setSnapshot(state, playerId);
   $('landing').classList.add('hidden');
   $('lobby').classList.toggle('hidden', state.phase !== 'lobby');
@@ -396,17 +400,16 @@ function render(state: GameState): void {
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
     document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => {
-      button.classList.toggle('selected', button.dataset.mobile === me?.mobile);
+      button.classList.toggle('selected', !me?.randomUsed && button.dataset.mobile === me?.mobile);
       button.disabled = isReady || !me?.connected || !!me.randomUsed;
     });
     ($('random-mobile') as HTMLButtonElement).disabled = isReady || !me?.connected || !!me.randomUsed;
     $('random-mobile').textContent = me?.randomUsed ? '🎲 สุ่มแล้ว' : '🎲 สุ่ม Mobile';
-    $('rare-mobile-result').classList.toggle('hidden', me?.mobile !== 'aegis');
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
       const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
-      const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = MOBILE_INFO[player.mobile].label;
+      const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? '🎲 รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
       const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
       ready.textContent = player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
       element.append(name, mobile, ready);

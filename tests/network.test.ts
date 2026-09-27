@@ -63,7 +63,8 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         clients[2].send({ type: 'random-mobile' });
         const rolled = await clients[2].waitFor(e => e.type === 'state' && e.state.players[2].randomUsed);
         assert.equal(rolled.type, 'state');
-        assert.equal(rolled.state.players[2].hp, rolled.state.players[2].mobile === 'aegis' ? 150 : 100);
+        assert.equal(rolled.state.players[2].mobile, 'borer');
+        assert.equal(rolled.state.players[2].hp, 100);
         clients[2].send({ type: 'random-mobile' });
         await clients[2].waitFor(e => e.type === 'error' && /ครั้งเดียว/.test(e.message));
         clients[2].send({ type: 'select', mobile: 'loom' });
@@ -93,6 +94,10 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(event.state.players.length, count);
         assert.equal(event.state.activeId, welcome.id);
         assert.equal(event.state.mode, count === 4 ? 'teams' : 'ffa');
+        if (count === 3) {
+          assert.equal(event.state.players[2].hp, event.state.players[2].mobile === 'aegis' ? 150 : 100);
+          assert.equal(event.state.players[2].randomUsed, true);
+        }
       }
       const initialX = states[0].type === 'state' ? states[0].state.players[0].x : 0;
       host.send({ type: 'move', direction: 1 });

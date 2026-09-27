@@ -139,9 +139,5 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
 .random-mobile-row{display:flex;align-items:center;gap:12px;margin:-4px 0 10px;color:#bedce2;font-size:12px}
 #random-mobile{flex:none;border:1px solid #f5c35a;border-radius:9px;background:#334a60;color:#ffe3a1;padding:7px 12px;font-weight:700}
 #random-mobile:hover:not(:disabled){background:#465e70}
-.rare-mobile-result{display:flex;align-items:center;gap:10px;margin:0 0 9px;padding:5px 12px;border:1px solid #74dff4;border-radius:10px;background:#164961b0;color:#e8fbff}
-.rare-mobile-result img{width:50px;height:42px;object-fit:contain}
-.rare-mobile-result b,.rare-mobile-result small{display:block;line-height:1.1}
-.rare-mobile-result small{font-size:11px;color:#a7e8f1}
 @media(max-width:520px) and (orientation:portrait){.lobby-card .mobile-picker{grid-template-columns:repeat(3,minmax(0,1fr))}.lobby-card .mobile-option img{height:62px}}
 @media(max-height:520px) and (orientation:landscape){.lobby-card{padding:9px 16px}.lobby-card .eyebrow,.lobby-card .hint{display:none}.lobby-card h2{font-size:22px}.lobby-card .invite{margin:5px 0;padding:4px 8px}.lobby-card .invite strong{font-size:19px}.lobby-card .invite button{padding:5px 9px}.lobby-card .mode-select{margin-bottom:4px;font-size:12px}.lobby-card .mode-select select{padding:4px 6px;font-size:12px}.lobby-card .lobby-picker-label{margin:3px 0;font-size:12px}.lobby-card .mobile-picker{margin:3px 0 6px}.lobby-card .mobile-option{padding:2px}.lobby-card .mobile-option img{height:39px}.lobby-card .mobile-option b{font-size:11px}.lobby-card .mobile-option small{font-size:9px}.lobby-card .lobby-player{padding:3px 7px;font-size:11px}.lobby-card .lobby-player-ready{font-size:10px}.lobby-card>.primary{padding:5px;margin-top:5px}.lobby-card .status{margin:4px 0;font-size:11px}}
