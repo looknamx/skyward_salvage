@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, dropKindForRoll, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
 import type { GameState } from '../shared/game.ts';
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -215,12 +215,34 @@ test('an item drops on turn 8 and only an empty matching slot can collect it', (
   player.x = drop.x;
   assert.equal(collectItemDrop(state, player), null);
   assert.equal(state.drops.length, 1);
-  player.items[drop.item] = 0;
+  if (drop.item === 'special') player.specialAvailable = false;
+  else player.items[drop.item] = 0;
   assert.equal(collectItemDrop(state, player), drop.item);
-  assert.equal(player.items[drop.item], 1);
+  if (drop.item === 'special') assert.equal(player.specialAvailable, true);
+  else assert.equal(player.items[drop.item], 1);
   assert.equal(player.stats.pickups, 1);
   assert.equal(state.drops.length, 0);
   for (let turn = 9; turn <= 16; turn++) finishOrAdvance(state, 1000 + turn);
   assert.equal(state.turn, 16);
   assert.equal(state.drops[0].spawnedTurn, 16);
+});
+
+test('drop odds are 30/30/30/10 and a special drop refills only an empty special slot', () => {
+  assert.equal(dropKindForRoll(0), 'double');
+  assert.equal(dropKindForRoll(0.299999), 'double');
+  assert.equal(dropKindForRoll(0.3), 'repair');
+  assert.equal(dropKindForRoll(0.6), 'teleport');
+  assert.equal(dropKindForRoll(0.9), 'special');
+  assert.equal(dropKindForRoll(0.999999), 'special');
+  const state = createState('SPEC10', 'p1', 'One', 'loom');
+  const player = state.players[0];
+  player.x = 300;
+  state.drops.push({ id: 'special-drop', item: 'special', x: 300, y: 400, spawnedTurn: 8 });
+  assert.equal(collectItemDrop(state, player), null);
+  assert.equal(state.drops.length, 1);
+  player.specialAvailable = false;
+  assert.equal(collectItemDrop(state, player), 'special');
+  assert.equal(player.specialAvailable, true);
+  assert.equal(player.stats.pickups, 1);
+  assert.equal(state.drops.length, 0);
 });

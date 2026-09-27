@@ -41,7 +41,7 @@ export class GameScene extends Phaser.Scene {
       this.load.image(`${key}-rock`, `/assets/terrain/${key}-rock.png`);
     }
     for (const kind of kinds) this.load.image(`mobile-${kind}`, `/assets/characters/${kind}.png`);
-    for (const item of ['double', 'repair', 'teleport']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
+    for (const item of ['double', 'repair', 'teleport', 'special']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
   }
 
   create(): void {

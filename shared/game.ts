@@ -11,10 +11,11 @@ export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'ae
 export type OrdinaryMobileKind = Exclude<MobileKind, 'aegis'>;
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport';
+export type DropKind = ItemKind | 'special';
 export type MatchMode = 'ffa' | 'teams';
 export type Team = 0 | 1;
 export interface PlayerStats { shots: number; hits: number; damageDealt: number; damageTaken: number; itemsUsed: number; pickups: number; distanceMoved: number }
-export interface ItemDrop { id: string; item: ItemKind; x: number; y: number; spawnedTurn: number }
+export interface ItemDrop { id: string; item: DropKind; x: number; y: number; spawnedTurn: number }
 
 export interface PlayerState {
   id: string;
@@ -81,7 +82,7 @@ export type ServerEvent =
   | { type: 'shot'; shot: ShotResult }
   | { type: 'hit' }
   | { type: 'item-used'; item: ItemKind | 'special' }
-  | { type: 'item-picked'; item: ItemKind; playerId: string }
+  | { type: 'item-picked'; item: DropKind; playerId: string }
   | { type: 'match-summary'; summary: MatchSummary }
   | { type: 'error'; message: string };
 
@@ -98,7 +99,12 @@ export function randomMobileFromRoll(rareRoll: number, ordinaryRoll: number): Mo
   if (rareRoll < 0.05) return 'aegis';
   return ORDINARY_MOBILES[Math.min(ORDINARY_MOBILES.length - 1, Math.floor(ordinaryRoll * ORDINARY_MOBILES.length))];
 }
-const ITEM_KINDS: ItemKind[] = ['double', 'repair', 'teleport'];
+export function dropKindForRoll(roll: number): DropKind {
+  if (roll < 0.3) return 'double';
+  if (roll < 0.6) return 'repair';
+  if (roll < 0.9) return 'teleport';
+  return 'special';
+}
 function emptyStats(): PlayerStats { return { shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, itemsUsed: 0, pickups: 0, distanceMoved: 0 }; }
 
 export function random(seed: number): () => number {
@@ -237,7 +243,7 @@ export function spawnItemDrop(state: GameState): ItemDrop | null {
   if (state.phase !== 'playing') return null;
   if (state.drops.length >= 6) state.drops.shift();
   const next = random(state.seed ^ Math.imul(state.turn, 0x51ed270b));
-  const item = ITEM_KINDS[Math.floor(next() * ITEM_KINDS.length)];
+  const item = dropKindForRoll(next());
   let x = 100 + next() * (WIDTH - 200);
   for (let attempt = 0; attempt < 12; attempt++) {
     if (state.players.every(player => player.hp <= 0 || Math.abs(player.x - x) >= 85) && state.drops.every(drop => Math.abs(drop.x - x) >= 70)) break;
@@ -248,11 +254,12 @@ export function spawnItemDrop(state: GameState): ItemDrop | null {
   return drop;
 }
 
-export function collectItemDrop(state: GameState, player: PlayerState): ItemKind | null {
-  const index = state.drops.findIndex(drop => Math.abs(player.x - drop.x) <= 34 && player.items[drop.item] === 0);
+export function collectItemDrop(state: GameState, player: PlayerState): DropKind | null {
+  const index = state.drops.findIndex(drop => Math.abs(player.x - drop.x) <= 34 && (drop.item === 'special' ? !player.specialAvailable : player.items[drop.item] === 0));
   if (index < 0) return null;
   const [drop] = state.drops.splice(index, 1);
-  player.items[drop.item] = 1;
+  if (drop.item === 'special') player.specialAvailable = true;
+  else player.items[drop.item] = 1;
   player.stats.pickups++;
   return drop.item;
 }

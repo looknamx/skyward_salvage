@@ -542,7 +542,7 @@ function connect(): void {
       else if (message.type === 'hit') { clearTimeout(hitTimer); hitTimer = window.setTimeout(() => playEffect(hitSound), 820); }
       else if (message.type === 'item-used' || message.type === 'item-picked') {
         playEffect(itemSound);
-        if (message.type === 'item-picked' && message.playerId === playerId) toast('เก็บไอเทมได้แล้ว');
+        if (message.type === 'item-picked' && message.playerId === playerId) toast(message.item === 'special' ? 'เก็บท่าพิเศษได้อีกครั้ง!' : 'เก็บไอเทมได้แล้ว');
       } else if (message.type === 'match-summary') renderSummary(message.summary);
       else if (message.type === 'error') {
         toast(message.message);
