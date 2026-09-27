@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GameScene } from './GameScene.ts';
-import { MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT } from '../shared/game.ts';
-import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
+import { MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT, WEATHER_INFO } from '../shared/game.ts';
+import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent, ShotMode } from '../shared/game.ts';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -19,6 +19,7 @@ let playerId = '';
 let gameState: GameState | null = null;
 let teleportMode = false;
 let specialMode = false;
+let shotMode: ShotMode = 'standard';
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
 const keysDown = new Set<string>();
@@ -135,6 +136,14 @@ function enterRoom(create: boolean): void {
 }
 $('create').addEventListener('click', () => enterRoom(true));
 $('join').addEventListener('click', () => enterRoom(false));
+$('practice').addEventListener('click', () => {
+  const name = userName();
+  if (!name) return;
+  $('landing-error').textContent = '';
+  audioWantsStart = true;
+  startBgm();
+  send({ type: 'practice', name, mobile: ($('practice-mobile') as HTMLSelectElement).value as OrdinaryMobileKind });
+});
 $('start').addEventListener('click', () => send({ type: 'start' }));
 $('lobby-ready').addEventListener('click', () => send({ type: 'lobby-ready', ready: !gameState?.lobbyReady.includes(playerId) }));
 ($('match-mode') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-mode', mode: (event.target as HTMLSelectElement).value as GameState['mode'] }));
@@ -145,6 +154,13 @@ $('copy-link').addEventListener('click', async () => {
   catch { toast(link); }
 });
 $('again').addEventListener('click', () => {
+  leavingRoom = true;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable. */ }
+  socket?.close();
+  location.href = '/';
+});
+$('practice-reset').addEventListener('click', () => { closeSettings(); send({ type: 'reset-practice' }); });
+$('practice-exit').addEventListener('click', () => {
   leavingRoom = true;
   try { sessionStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable. */ }
   socket?.close();
@@ -169,7 +185,7 @@ function setPower(value: number): void {
 function fireChargedShot(): void {
   const angle = Number(angleInput.value), power = Math.round(powerMeter.value);
   if (teleportMode) send({ type: 'item', item: 'teleport', angle, power });
-  else send({ type: 'fire', angle, power, special: specialMode });
+  else send({ type: 'fire', angle, power, special: specialMode, mode: shotMode });
 }
 function chargePower(): void {
   if (chargeStartedAt === null) return;
@@ -217,20 +233,34 @@ $('item-double').addEventListener('click', () => send({ type: 'item', item: 'dou
 $('item-repair').addEventListener('click', () => send({ type: 'item', item: 'repair' }));
 $('item-teleport').addEventListener('click', () => { setTeleportMode(!teleportMode); if (teleportMode) toast('เล็งมุม กดยิงค้างเพื่อเพิ่มพลัง แล้วปล่อยเพื่อย้าย'); });
 $('item-special').addEventListener('click', () => { if (canControl()) setSpecialMode(!specialMode); });
+function updateFireLabel(): void {
+  $('fire').textContent = teleportMode ? 'WARP' : specialMode ? 'SKILL' : shotMode === 'terrain' ? 'DIG' : 'FIRE';
+  $('shot-mode').textContent = shotMode === 'terrain' ? 'กระสุน: ขุดพื้น' : 'กระสุน: โจมตี';
+  $('shot-mode').classList.toggle('selected', shotMode === 'terrain');
+}
+function setShotMode(value: ShotMode): void {
+  if (value === 'terrain') { setTeleportMode(false); setSpecialMode(false); }
+  shotMode = value;
+  updateFireLabel();
+}
+$('shot-mode').addEventListener('click', () => { if (canControl()) setShotMode(shotMode === 'standard' ? 'terrain' : 'standard'); });
 function setTeleportMode(value: boolean): void {
   if (value) setSpecialMode(false);
+  if (value) shotMode = 'standard';
   teleportMode = value;
   $('item-teleport').classList.toggle('selected', value);
   $('fire').classList.toggle('warp-armed', value);
-  $('fire').textContent = value ? 'WARP' : specialMode ? 'SKILL' : 'FIRE';
+  updateFireLabel();
 }
 function setSpecialMode(value: boolean): void {
   if (value) setTeleportMode(false);
+  if (value) shotMode = 'standard';
   specialMode = value;
   $('item-special').classList.toggle('selected', value);
   $('fire').classList.toggle('special-armed', value);
-  $('fire').textContent = value ? 'SKILL' : teleportMode ? 'WARP' : 'FIRE';
+  updateFireLabel();
 }
+updateFireLabel();
 
 function canControl(): boolean {
   return socket?.readyState === WebSocket.OPEN && !resumePending && gameState?.phase === 'playing' && gameState.activeId === playerId;
@@ -355,6 +385,9 @@ window.addEventListener('keydown', event => {
   } else if (event.code === 'KeyR') {
     if (!event.repeat) { releaseMovement(); send({ type: 'turn' }); }
     event.preventDefault();
+  } else if (event.code === 'KeyQ') {
+    if (!event.repeat) setShotMode(shotMode === 'standard' ? 'terrain' : 'standard');
+    event.preventDefault();
   } else if (event.code === 'Space') { if (!event.repeat) beginCharge(); event.preventDefault(); }
 });
 window.addEventListener('keyup', event => {
@@ -387,6 +420,7 @@ function render(state: GameState): void {
     const me = state.players.find(player => player.id === playerId);
     if (me?.randomUsed) toast(`สุ่มได้ ${MOBILE_INFO[me.mobile].label}!`);
   }
+  if (previous?.phase !== 'playing' && state.phase === 'playing') toast(`สภาพอากาศ: ${WEATHER_INFO[state.weather].label} · ${WEATHER_INFO[state.weather].detail}`);
   scene.setSnapshot(state, playerId);
   $('landing').classList.add('hidden');
   $('lobby').classList.toggle('hidden', state.phase !== 'lobby');
@@ -397,6 +431,7 @@ function render(state: GameState): void {
     const modeSelect = $('match-mode') as HTMLSelectElement;
     modeSelect.value = state.mode;
     modeSelect.disabled = state.hostId !== playerId;
+    $('lobby-weather').textContent = `สภาพอากาศรอบนี้: ${WEATHER_INFO[state.weather].label} · ${WEATHER_INFO[state.weather].detail}`;
     const me = state.players.find(player => player.id === playerId);
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
@@ -442,8 +477,11 @@ function render(state: GameState): void {
     return card;
   }));
   $('wind').textContent = `WIND ${state.wind < 0 ? '←' : '→'} ${Math.abs(state.wind)}`;
+  $('weather-badge').textContent = state.mode === 'practice' ? `ฝึกยิง · ${WEATHER_INFO[state.weather].label}` : WEATHER_INFO[state.weather].label;
+  $('practice-options').classList.toggle('hidden', state.mode !== 'practice');
   $('turn').textContent = `TURN ${String(state.turn).padStart(2, '0')}`;
   $('turn-banner').textContent = state.activeId === playerId ? 'เทิร์นของคุณ • เล็งแล้ว FIRE' : state.message;
+  if (state.mode === 'practice') $('turn-banner').textContent = 'โหมดฝึก · ยิงเป้าได้ต่อเนื่อง';
   const me = state.players.find(player => player.id === playerId);
   const canAct = socket?.readyState === WebSocket.OPEN && !resumePending && state.phase === 'playing' && state.activeId === playerId && !!me && me.hp > 0;
   if (canAct && state.turn !== lastOwnTurn) {
@@ -454,7 +492,7 @@ function render(state: GameState): void {
     setPower(MIN_POWER);
     updateAim();
   }
-  for (const id of ['angle', 'fire']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
+  for (const id of ['angle', 'fire', 'shot-mode']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
   ($('item-special') as HTMLButtonElement).disabled = !canAct || !me?.specialAvailable;
   $('count-special').textContent = me?.specialAvailable ? '1' : '0';
   document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => { button.disabled = !canAct; });
@@ -497,6 +535,7 @@ function renderSummary(summary: MatchSummary): void {
 $('rematch-ready').addEventListener('click', () => send({ type: 'rematch-ready', ready: !gameState?.rematchReady.includes(playerId) }));
 function updateTimer(): void {
   if (!gameState || gameState.phase !== 'playing' || !gameState.activeId) { stopClockSound(); return; }
+  if (gameState.mode === 'practice') { $('timer').textContent = '∞'; stopClockSound(); return; }
   const seconds = Math.max(0, Math.ceil((gameState.deadline - Date.now()) / 1000));
   $('timer').textContent = `${seconds}s`;
   if (seconds > 0 && seconds <= 5 && sfxEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {

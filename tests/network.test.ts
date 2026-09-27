@@ -82,7 +82,9 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         await host.waitFor(e => e.type === 'error' && /กดพร้อม/.test(e.message));
       }
       for (let i = 1; i < count; i++) clients[i].send({ type: 'lobby-ready', ready: true });
-      await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      const readyState = await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      assert.equal(readyState.type, 'state');
+      const awaitedWeather = readyState.state.weather;
       if (count === 2) {
         clients[1].send({ type: 'select', mobile: 'manta' });
         await clients[1].waitFor(e => e.type === 'error' && /ยกเลิกพร้อม/.test(e.message));
@@ -94,6 +96,7 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(event.state.players.length, count);
         assert.equal(event.state.activeId, welcome.id);
         assert.equal(event.state.mode, count === 4 ? 'teams' : 'ffa');
+        assert.equal(event.state.weather, awaitedWeather);
         if (count === 3) {
           assert.equal(event.state.players[2].hp, event.state.players[2].mobile === 'aegis' ? 150 : 100);
           assert.equal(event.state.players[2].randomUsed, true);
@@ -165,6 +168,29 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       }
       clients.forEach(client => client.close());
     }
+    const trainee = new Client();
+    const visitor = new Client();
+    await Promise.all([trainee.open(), visitor.open()]);
+    trainee.send({ type: 'practice', name: 'Trainee', mobile: 'manta' });
+    const practiceWelcome = await trainee.waitFor(e => e.type === 'welcome');
+    assert.equal(practiceWelcome.type, 'welcome');
+    const practiceState = await trainee.waitFor(e => e.type === 'state' && e.state.mode === 'practice');
+    assert.equal(practiceState.type, 'state');
+    assert.equal(practiceState.state.phase, 'playing');
+    assert.equal(practiceState.state.players[0].mobile, 'manta');
+    assert.equal(practiceState.state.deadline, 0);
+    visitor.send({ type: 'join', code: practiceWelcome.code, name: 'Visitor' });
+    await visitor.waitFor(e => e.type === 'error' && /ไม่พบห้อง/.test(e.message));
+    trainee.send({ type: 'fire', angle: 45, power: 50, mode: 'terrain' });
+    const practiceShot = await trainee.waitFor(e => e.type === 'shot');
+    assert.equal(practiceShot.type, 'shot');
+    assert.equal(practiceShot.shot.mode, 'terrain');
+    await trainee.waitFor(e => e.type === 'state' && e.state.turn === 2 && e.state.activeId === practiceWelcome.id);
+    trainee.send({ type: 'fire', angle: 45, power: 50 });
+    await trainee.waitFor(e => e.type === 'state' && e.state.turn === 3 && e.state.activeId === practiceWelcome.id);
+    trainee.send({ type: 'reset-practice' });
+    await trainee.waitFor(e => e.type === 'state' && e.state.turn === 1 && e.state.mode === 'practice');
+    trainee.close(); visitor.close();
   } finally {
     child.kill();
   }

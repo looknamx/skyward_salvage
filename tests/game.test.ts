@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, dropKindForRoll, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, dropKindForRoll, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, resetPractice, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, weatherForRoll, windChangesOn, windFor } from '../shared/game.ts';
 import type { GameState } from '../shared/game.ts';
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -72,6 +72,61 @@ test('five percent is a valid firing power', () => {
   state.players.push(makePlayer('p2', 'Two', 'manta'));
   startRound(state, 12, 1000);
   assert.equal(fireShot(state, 'p1', 45, 5, 1100).kind, 'damage');
+});
+
+test('terrain shot trades direct damage for a deeper crater on each Mobile', () => {
+  for (const mobile of ['loom', 'manta', 'borer', 'vesper', 'bramble', 'aegis'] as const) {
+    const initial = createState('TERRAN', 'p1', 'One', mobile);
+    initial.players.push(makePlayer('p2', 'Two', 'loom'));
+    startRound(initial, 18, 1000);
+    const standard = structuredClone(initial);
+    const digging = structuredClone(initial);
+    const hit = fireShot(standard, 'p1', 45, 50, 1100);
+    const dig = fireShot(digging, 'p1', 45, 50, 1100, false, 'terrain');
+    assert.equal(dig.mode, 'terrain');
+    assert.deepEqual(dig.paths, hit.paths);
+    assert.ok(dig.impacts[0].damage < hit.impacts[0].damage);
+    assert.ok(digging.terrain.reduce((sum, y, i) => sum + y - standard.terrain[i], 0) > 0);
+  }
+});
+
+test('round weather changes authoritative trajectories without changing wind rolls', () => {
+  assert.equal(weatherForRoll(0), 'clear');
+  assert.equal(weatherForRoll(0.5), 'gust');
+  assert.equal(weatherForRoll(0.75), 'low-gravity');
+  const initial = createState('WEATHR', 'p1', 'One', 'loom');
+  initial.players.push(makePlayer('p2', 'Two', 'borer'));
+  initial.weather = 'gust';
+  startRound(initial, 18, 1000);
+  assert.equal(initial.weather, 'gust');
+  const clear = structuredClone(initial); clear.weather = 'clear'; clear.wind = 6;
+  const gust = structuredClone(clear); gust.weather = 'gust';
+  const lowGravity = structuredClone(clear); lowGravity.weather = 'low-gravity';
+  const clearPath = fireShot(clear, 'p1', 45, 50, 1100).paths[0];
+  const gustPath = fireShot(gust, 'p1', 45, 50, 1100).paths[0];
+  const lowPath = fireShot(lowGravity, 'p1', 45, 50, 1100).paths[0];
+  assert.ok(gustPath[10].x > clearPath[10].x);
+  assert.ok(lowPath[10].y < clearPath[10].y);
+});
+
+test('practice keeps the trainee active, restores target, and has no deadline', () => {
+  const state = createState('PRACTC', 'p1', 'One', 'loom');
+  state.mode = 'practice';
+  state.players.push(makePlayer('target', 'หุ่นฝึก', 'borer'));
+  startRoundCore(state, 18, 1000);
+  assert.equal(state.deadline, 0);
+  for (let turn = 1; turn <= 4; turn++) {
+    state.players[1].hp = 1;
+    fireShot(state, 'p1', 45, 50, 1000 + turn * 1000, false, 'terrain');
+    assert.equal(state.phase, 'playing');
+    assert.equal(state.activeId, 'p1');
+    assert.equal(state.turn, turn + 1);
+    assert.equal(state.deadline, 0);
+    assert.equal(state.players[1].hp, 100);
+  }
+  resetPractice(state, 123, 8000);
+  assert.equal(state.turn, 1);
+  assert.equal(state.terrain.length, 129);
 });
 
 test('repair and a fired teleport projectile spend a turn', () => {

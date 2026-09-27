@@ -20,6 +20,7 @@
             <label for="name">ชื่อผู้เล่น <input id="name" maxlength="18" placeholder="ชื่อของคุณ" autocomplete="nickname" /></label>
             <div class="room-actions">
               <button id="create" class="primary" type="button">สร้างห้องใหม่</button>
+              <div class="practice-entry"><button id="practice" type="button">ฝึกยิงคนเดียว</button><select id="practice-mobile" aria-label="เลือก Mobile สำหรับโหมดฝึก"><option value="loom">Loom</option><option value="manta">Manta</option><option value="borer">Borer</option><option value="vesper">Vesper</option><option value="bramble">Bramble</option></select></div>
               <div class="join-section">
                 <span class="join-label">หรือเข้าห้องของเพื่อน</span>
                 <div class="join-row"><input id="room-code" maxlength="6" placeholder="รหัสห้อง 6 ตัว" aria-label="รหัสห้อง" /><button id="join" type="button">เข้าห้อง</button></div>
@@ -35,6 +36,7 @@
           <h2>เตรียมออกเดินทาง</h2>
           <div class="invite">รหัสห้อง <strong id="lobby-code"></strong> <button id="copy-link">คัดลอกลิงก์</button></div>
           <label class="mode-select" for="match-mode">รูปแบบการเล่น <select id="match-mode"><option value="ffa">ทุกคนสู้กัน</option><option value="teams">ทีม 2v2 (ต้องมี 4 คน)</option></select></label>
+          <p id="lobby-weather" class="lobby-weather"></p>
           <p class="lobby-picker-label">เลือก Mobile ของคุณ</p>
           <div class="mobile-picker" role="group" aria-label="เลือก Mobile">
             <button class="mobile-option" data-mobile="loom"><img src="/assets/characters/loom.png" alt="" /><b>LOOM</b><small>ยิงแม่น</small></button>
@@ -54,11 +56,13 @@
       <div id="hud" class="hidden">
         <div id="player-strip"></div>
         <div class="weather-panel"><span id="wind">WIND → 0</span><span id="turn">TURN 01</span><strong id="timer">30s</strong><button id="settings-toggle" class="settings-toggle" type="button" aria-label="ตั้งค่า" aria-controls="settings-popup" aria-expanded="false" title="ตั้งค่า">⚙</button></div>
+        <div id="weather-badge" class="weather-badge"></div>
         <div id="settings-popup" class="settings-popup hidden" role="dialog" aria-labelledby="settings-title">
           <div class="settings-heading"><strong id="settings-title">ตั้งค่า</strong><button id="settings-close" type="button" aria-label="ปิดการตั้งค่า">×</button></div>
           <label class="settings-option" for="touch-controls-toggle"><span>ปุ่มลูกศรบนหน้าจอ<small>เดินและปรับมุมสำหรับมือถือ</small></span><input id="touch-controls-toggle" type="checkbox" /></label>
           <label class="settings-option" for="bgm-toggle"><span>BGM<small>เพลงพื้นหลัง</small></span><input id="bgm-toggle" type="checkbox" checked /></label>
           <label class="settings-option" for="sfx-toggle"><span>SFX<small>เสียงยิง ไอเทม ลม และเสียงเตือน</small></span><input id="sfx-toggle" type="checkbox" checked /></label>
+          <div id="practice-options" class="practice-options hidden"><button id="practice-reset" type="button">เริ่มสนามฝึกใหม่</button><button id="practice-exit" type="button">ออกจากโหมดฝึก</button></div>
         </div>
         <div id="touch-dpad" class="touch-dpad hidden" role="group" aria-label="ปุ่มควบคุมบนหน้าจอ">
           <button class="dpad-up" type="button" data-direction="up" aria-label="เพิ่มมุมยิง">▲</button>
@@ -67,7 +71,7 @@
           <button class="dpad-down" type="button" data-direction="down" aria-label="ลดมุมยิง">▼</button>
         </div>
         <div id="turn-banner"></div>
-        <div id="control-hint">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
+        <div id="control-hint">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; Q สลับกระสุน &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
         <div id="controls">
           <div class="aim-panel">
             <div class="aim-dial"><span class="dial-needle" id="dial-needle"></span><output id="angle-value">45°</output></div>
@@ -82,6 +86,7 @@
             <button id="item-teleport" title="เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
             <button id="item-special" title="ท่าพิเศษของ Mobile ใช้ได้หนึ่งครั้งต่อรอบ และเติมใหม่ได้จากไอเทมที่ตกจากฟ้า"><img src="/assets/ui/special.png" alt="" /><span>ท่าพิเศษ</span><small id="count-special">1</small></button>
           </div>
+          <button id="shot-mode" class="shot-mode" type="button" title="สลับระหว่างกระสุนโจมตีกับกระสุนขุดพื้น">กระสุน: โจมตี</button>
           <button id="fire" class="fire-button" title="กดค้างเพื่อเพิ่มพลัง ปล่อยเพื่อยิง">FIRE</button>
         </div>
       </div>

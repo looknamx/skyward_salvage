@@ -197,3 +197,16 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
 }
 #hud .item-panel button{background:rgba(15,37,61,.28)}
 #hud .player-head,#hud .weather-panel,#hud .aim-sliders,#hud .item-panel button span{text-shadow:0 1px 3px #061728}
+.practice-entry{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:10px}
+#practice,.practice-entry select{min-height:45px;border:1px solid #78cbbf;border-radius:10px;background:#193f52;color:#e9fff4;font-weight:700;padding:7px 12px}
+#practice:hover{background:#286275}
+.practice-entry select{font-weight:500}
+.lobby-weather{margin:8px 0;padding:8px 11px;border:1px solid #82bbc1;border-radius:8px;background:#173e54;color:#dffaf1;font-size:13px}
+.weather-badge{position:absolute;right:12px;top:91px;padding:3px 9px;border:1px solid #9ccfd1;border-radius:6px;background:rgba(13,34,57,.55);color:#e5faf3;font-size:12px;font-weight:700;white-space:nowrap}
+.shot-mode{position:absolute;right:0;bottom:112px;min-width:190px;padding:6px 10px;border:1px solid #9ccbd0;border-radius:7px;background:rgba(13,34,57,.7);color:#e3f5f1;font-size:12px;font-weight:700}
+.shot-mode.selected{border-color:#f5c35a;background:rgba(85,65,34,.82);color:#fff0ba}
+.practice-options{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.practice-options button{padding:8px;border:1px solid #8ebbc5;border-radius:7px;background:#21465f;color:#fff2d7;font-size:12px;font-weight:700}
+@media(max-width:760px){.weather-badge{top:78px;right:5px;font-size:9px;padding:1px 5px}.shot-mode{right:0;bottom:62px;min-width:84px;font-size:9px;padding:3px 5px}}
+@media (max-width:1000px) and (max-height:520px) and (orientation:landscape){.weather-badge{top:48px;right:max(4px,env(safe-area-inset-right));font-size:9px}.shot-mode{bottom:60px;min-width:84px;font-size:9px}}
+@media(max-width:480px){.practice-entry{grid-template-columns:minmax(0,1fr) 110px;gap:8px}.practice-entry select{padding:4px}}
