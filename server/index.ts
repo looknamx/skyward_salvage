@@ -106,6 +106,7 @@ function expireSession(session: Session): void {
   } else {
     state.players = state.players.filter(candidate => candidate.id !== player.id);
     state.rematchReady = state.rematchReady.filter(id => id !== player.id);
+    state.lobbyReady = state.lobbyReady.filter(id => id !== player.id);
     if (state.hostId === player.id) state.hostId = state.players[0]?.id ?? '';
     if (state.phase === 'finished') tryRematch(state);
   }
@@ -122,7 +123,7 @@ function cleanName(value: unknown): string {
   return name;
 }
 function mobile(value: unknown): MobileKind {
-  if (value !== 'loom' && value !== 'manta' && value !== 'borer') throw new Error('Mobile ไม่ถูกต้อง');
+  if (value !== 'loom' && value !== 'manta' && value !== 'borer' && value !== 'vesper' && value !== 'bramble') throw new Error('Mobile ไม่ถูกต้อง');
   return value;
 }
 function roomCode(): string {
@@ -146,7 +147,7 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (current) throw new Error('คุณอยู่ในห้องแล้ว');
     const id = randomBytes(12).toString('hex');
     const code = roomCode();
-    const state = createState(code, id, cleanName(action.name), mobile(action.mobile));
+    const state = createState(code, id, cleanName(action.name), mobile(action.mobile ?? 'loom'));
     rooms.set(code, state);
     welcome(ws, makeSession(id, code), false);
     stateBroadcast(state);
@@ -159,7 +160,8 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (!state || state.phase !== 'lobby') throw new Error('ไม่พบห้องที่รอผู้เล่น');
     if (state.players.length >= MAX_PLAYERS) throw new Error('ห้องเต็มแล้ว');
     const id = randomBytes(12).toString('hex');
-    state.players.push(makePlayer(id, cleanName(action.name), mobile(action.mobile)));
+    state.players.push(makePlayer(id, cleanName(action.name), mobile(action.mobile ?? 'loom')));
+    state.lobbyReady = [];
     welcome(ws, makeSession(id, code), false);
     stateBroadcast(state);
     return;
@@ -171,11 +173,18 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
   if (!player) throw new Error('ไม่พบผู้เล่น');
   if (action.type === 'select') {
     if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
+    if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยน Mobile');
     player.mobile = mobile(action.mobile);
+  } else if (action.type === 'lobby-ready') {
+    if (state.phase !== 'lobby' || state.hostId === current.id) throw new Error('ผู้เล่นในห้องเท่านั้นที่กดพร้อมได้');
+    if (typeof action.ready !== 'boolean') throw new Error('สถานะพร้อมไม่ถูกต้อง');
+    state.lobbyReady = state.lobbyReady.filter(id => id !== current.id);
+    if (action.ready) state.lobbyReady.push(current.id);
   } else if (action.type === 'set-mode') {
     if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เลือกโหมดได้');
     if (action.mode !== 'ffa' && action.mode !== 'teams') throw new Error('โหมดไม่ถูกต้อง');
     state.mode = action.mode;
+    state.lobbyReady = [];
   } else if (action.type === 'start') {
     if (state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เริ่มได้');
     if (state.phase !== 'lobby') throw new Error('เกมเริ่มไปแล้ว');
@@ -259,6 +268,7 @@ wss.on('connection', ws => {
     if (movement.get(state.code)?.playerId === client.id) movement.delete(state.code);
     player.connected = false;
     state.rematchReady = state.rematchReady.filter(id => id !== client.id);
+    state.lobbyReady = state.lobbyReady.filter(id => id !== client.id);
     if (state.phase === 'playing' && state.activeId === client.id) finishOrAdvance(state, Date.now());
     const key = sessionKey(client);
     clearTimeout(reconnectTimers.get(key));

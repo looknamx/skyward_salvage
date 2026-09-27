@@ -15,11 +15,6 @@
           <h1>SKYWARD<br><span>SALVAGE</span></h1>
           <p class="intro">เล็งข้ามหมู่เกาะลอยฟ้า อ่านทิศลม และยิงให้แม่นก่อนหมดเทิร์น</p>
           <label>ชื่อผู้เล่น <input id="name" maxlength="18" placeholder="ชื่อของคุณ" autocomplete="nickname" /></label>
-          <div class="mobile-picker" role="group" aria-label="เลือก Mobile">
-            <button class="mobile-option selected" data-mobile="loom"><b>LOOM</b><small>ลูกยิงแม่น</small></button>
-            <button class="mobile-option" data-mobile="manta"><b>MANTA</b><small>กระสุนคู่</small></button>
-            <button class="mobile-option" data-mobile="borer"><b>BORER</b><small>ระเบิดหนัก</small></button>
-          </div>
           <div class="room-actions">
             <button id="create" class="primary">สร้างห้อง</button>
             <div class="join-row"><input id="room-code" maxlength="6" placeholder="รหัสห้อง" aria-label="รหัสห้อง" /><button id="join">เข้าห้อง</button></div>
@@ -33,9 +28,18 @@
           <h2>เตรียมออกเดินทาง</h2>
           <div class="invite">รหัสห้อง <strong id="lobby-code"></strong> <button id="copy-link">คัดลอกลิงก์</button></div>
           <label class="mode-select" for="match-mode">รูปแบบการเล่น <select id="match-mode"><option value="ffa">ทุกคนสู้กัน</option><option value="teams">ทีม 2v2 (ต้องมี 4 คน)</option></select></label>
+          <p class="lobby-picker-label">เลือก Mobile ของคุณ</p>
+          <div class="mobile-picker" role="group" aria-label="เลือก Mobile">
+            <button class="mobile-option" data-mobile="loom"><img src="/assets/characters/loom.png" alt="" /><b>LOOM</b><small>ยิงแม่น</small></button>
+            <button class="mobile-option" data-mobile="manta"><img src="/assets/characters/manta.png" alt="" /><b>MANTA</b><small>กระสุนคู่</small></button>
+            <button class="mobile-option" data-mobile="borer"><img src="/assets/characters/borer.png" alt="" /><b>BORER</b><small>เจาะพื้น</small></button>
+            <button class="mobile-option" data-mobile="vesper"><img src="/assets/characters/vesper.png" alt="" /><b>VESPER</b><small>ทนแรงลม</small></button>
+            <button class="mobile-option" data-mobile="bramble"><img src="/assets/characters/bramble.png" alt="" /><b>BRAMBLE</b><small>ฟื้นพลัง</small></button>
+          </div>
           <div id="lobby-players" class="lobby-players"></div>
-          <p class="hint">เลือก Mobile บนหน้าก่อนเข้าห้องได้ • เจ้าของห้องเริ่มเมื่อมีผู้เล่น 2–4 คน</p>
+          <p class="hint">เลือก Mobile แล้วกดพร้อม • หัวหน้าห้องเริ่มเกมเมื่อทุกคนพร้อม</p>
           <button id="start" class="primary" disabled>เริ่มเกม</button>
+          <button id="lobby-ready" class="primary hidden" type="button">พร้อมเล่น</button>
           <p id="lobby-status" class="status"></p>
         </div>
       </section>
@@ -45,7 +49,8 @@
         <div id="settings-popup" class="settings-popup hidden" role="dialog" aria-labelledby="settings-title">
           <div class="settings-heading"><strong id="settings-title">ตั้งค่า</strong><button id="settings-close" type="button" aria-label="ปิดการตั้งค่า">×</button></div>
           <label class="settings-option" for="touch-controls-toggle"><span>ปุ่มลูกศรบนหน้าจอ<small>เดินและปรับมุมสำหรับมือถือ</small></span><input id="touch-controls-toggle" type="checkbox" /></label>
-          <label class="settings-option" for="sound-toggle"><span>เปิดเสียง<small>เพลงพื้นหลังและเสียงเอฟเฟกต์</small></span><input id="sound-toggle" type="checkbox" checked /></label>
+          <label class="settings-option" for="bgm-toggle"><span>BGM<small>เพลงพื้นหลัง</small></span><input id="bgm-toggle" type="checkbox" checked /></label>
+          <label class="settings-option" for="sfx-toggle"><span>SFX<small>เสียงยิง ไอเทม ลม และเสียงเตือน</small></span><input id="sfx-toggle" type="checkbox" checked /></label>
         </div>
         <div id="touch-dpad" class="touch-dpad hidden" role="group" aria-label="ปุ่มควบคุมบนหน้าจอ">
           <button class="dpad-up" type="button" data-direction="up" aria-label="เพิ่มมุมยิง">▲</button>

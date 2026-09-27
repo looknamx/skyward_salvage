@@ -17,7 +17,6 @@ new Phaser.Game({
 
 let playerId = '';
 let gameState: GameState | null = null;
-let selectedMobile: MobileKind = 'loom';
 let teleportMode = false;
 let specialMode = false;
 let lastOwnTurn = 0;
@@ -55,16 +54,17 @@ hitSound.volume = 0.7;
 dropSound.volume = 0.7;
 clockSound.volume = 0.55;
 windSound.volume = 0.65;
-let soundEnabled = true;
+let bgmEnabled = true;
+let sfxEnabled = true;
 let audioWantsStart = false;
 let movementStopTimer = 0;
 let hitTimer = 0;
 
 function startBgm(): void {
-  if (soundEnabled && audioWantsStart && bgm.paused) void bgm.play().catch(() => { /* Retry on the next user gesture. */ });
+  if (bgmEnabled && audioWantsStart && bgm.paused) void bgm.play().catch(() => { /* Retry on the next user gesture. */ });
 }
 function playEffect(sound: HTMLAudioElement): void {
-  if (!soundEnabled) return;
+  if (!sfxEnabled) return;
   try { sound.currentTime = 0; } catch { /* The file may still be loading. */ }
   void sound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
 }
@@ -79,7 +79,7 @@ function stopMovementSound(): void {
   try { movementSound.currentTime = 0; } catch { /* The file may still be loading. */ }
 }
 function updateMovementSound(previous: GameState | null, current: GameState): void {
-  if (!soundEnabled || current.phase !== 'playing' || previous?.phase !== 'playing' || previous.activeId !== current.activeId || !current.activeId) {
+  if (!sfxEnabled || current.phase !== 'playing' || previous?.phase !== 'playing' || previous.activeId !== current.activeId || !current.activeId) {
     stopMovementSound();
     return;
   }
@@ -106,9 +106,7 @@ function toast(message: string): void {
   toastTimer = window.setTimeout(() => element.classList.remove('show'), 3200);
 }
 function pickMobile(kind: MobileKind): void {
-  selectedMobile = kind;
-  document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => button.classList.toggle('selected', button.dataset.mobile === kind));
-  if (gameState?.phase === 'lobby') send({ type: 'select', mobile: kind });
+  if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId)) send({ type: 'select', mobile: kind });
 }
 document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => button.addEventListener('click', () => pickMobile(button.dataset.mobile as MobileKind)));
 
@@ -122,18 +120,19 @@ function enterRoom(create: boolean): void {
   const name = userName();
   if (!name) return;
   $('landing-error').textContent = '';
-  if (create) { audioWantsStart = true; startBgm(); send({ type: 'create', name, mobile: selectedMobile }); }
+  if (create) { audioWantsStart = true; startBgm(); send({ type: 'create', name }); }
   else {
     const code = (($('room-code') as HTMLInputElement).value || '').trim().toUpperCase();
     if (code.length !== 6) { $('landing-error').textContent = 'รหัสห้องมี 6 ตัว'; return; }
     audioWantsStart = true;
     startBgm();
-    send({ type: 'join', code, name, mobile: selectedMobile });
+    send({ type: 'join', code, name });
   }
 }
 $('create').addEventListener('click', () => enterRoom(true));
 $('join').addEventListener('click', () => enterRoom(false));
 $('start').addEventListener('click', () => send({ type: 'start' }));
+$('lobby-ready').addEventListener('click', () => send({ type: 'lobby-ready', ready: !gameState?.lobbyReady.includes(playerId) }));
 ($('match-mode') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-mode', mode: (event.target as HTMLSelectElement).value as GameState['mode'] }));
 $('copy-link').addEventListener('click', async () => {
   if (!gameState) return;
@@ -254,7 +253,8 @@ const settingsToggle = $('settings-toggle') as HTMLButtonElement;
 const settingsPopup = $('settings-popup');
 const touchToggle = $('touch-controls-toggle') as HTMLInputElement;
 const touchDpad = $('touch-dpad');
-const soundToggle = $('sound-toggle') as HTMLInputElement;
+const bgmToggle = $('bgm-toggle') as HTMLInputElement;
+const sfxToggle = $('sfx-toggle') as HTMLInputElement;
 function closeSettings(): void {
   settingsPopup.classList.add('hidden');
   settingsToggle.setAttribute('aria-expanded', 'false');
@@ -276,20 +276,30 @@ settingsToggle.addEventListener('click', () => {
 });
 $('settings-close').addEventListener('click', closeSettings);
 touchToggle.addEventListener('change', () => setTouchControls(touchToggle.checked));
-function setSoundEnabled(enabled: boolean): void {
-  soundEnabled = enabled;
-  soundToggle.checked = enabled;
+function setBgmEnabled(enabled: boolean): void {
+  bgmEnabled = enabled;
+  bgmToggle.checked = enabled;
   if (enabled) startBgm();
-  else {
-    bgm.pause(); fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); stopClockSound();
+  else bgm.pause();
+  try { localStorage.setItem('skyward-bgm', enabled ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
+}
+function setSfxEnabled(enabled: boolean): void {
+  sfxEnabled = enabled;
+  sfxToggle.checked = enabled;
+  if (!enabled) {
+    fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); stopClockSound();
     clearTimeout(hitTimer);
     stopMovementSound();
   }
-  try { localStorage.setItem('skyward-sound', enabled ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
+  try { localStorage.setItem('skyward-sfx', enabled ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
 }
-try { setSoundEnabled(localStorage.getItem('skyward-sound') !== 'off'); }
-catch { setSoundEnabled(true); }
-soundToggle.addEventListener('change', () => setSoundEnabled(soundToggle.checked));
+try {
+  const oldSoundSetting = localStorage.getItem('skyward-sound');
+  setBgmEnabled((localStorage.getItem('skyward-bgm') ?? oldSoundSetting) !== 'off');
+  setSfxEnabled((localStorage.getItem('skyward-sfx') ?? oldSoundSetting) !== 'off');
+} catch { setBgmEnabled(true); setSfxEnabled(true); }
+bgmToggle.addEventListener('change', () => setBgmEnabled(bgmToggle.checked));
+sfxToggle.addEventListener('change', () => setSfxEnabled(sfxToggle.checked));
 document.addEventListener('pointerdown', event => {
   if (!settingsPopup.classList.contains('hidden') && !settingsPopup.contains(event.target as Node) && !settingsToggle.contains(event.target as Node)) closeSettings();
 });
@@ -378,16 +388,29 @@ function render(state: GameState): void {
     const modeSelect = $('match-mode') as HTMLSelectElement;
     modeSelect.value = state.mode;
     modeSelect.disabled = state.hostId !== playerId;
+    const me = state.players.find(player => player.id === playerId);
+    const isHost = state.hostId === playerId;
+    const isReady = state.lobbyReady.includes(playerId);
+    document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => {
+      button.classList.toggle('selected', button.dataset.mobile === me?.mobile);
+      button.disabled = isReady || !me?.connected;
+    });
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
       const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
-      const mobile = document.createElement('b'); mobile.textContent = MOBILE_INFO[player.mobile].label;
-      element.append(name, mobile);
+      const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = MOBILE_INFO[player.mobile].label;
+      const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
+      ready.textContent = player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
+      element.append(name, mobile, ready);
       return element;
     }));
-    ($('start') as HTMLButtonElement).disabled = state.hostId !== playerId || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && state.players.length !== 4);
-    $('lobby-status').textContent = `${state.players.filter(player => player.connected).length}/4 คนเข้าห้องแล้ว${state.mode === 'teams' ? ' · ทีม A/B สลับตามลำดับเข้าห้อง' : ''}`;
+    $('start').classList.toggle('hidden', !isHost);
+    $('lobby-ready').classList.toggle('hidden', isHost);
+    ($('start') as HTMLButtonElement).disabled = !isHost || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && state.players.length !== 4) || state.players.some(player => player.id !== state.hostId && !state.lobbyReady.includes(player.id));
+    ($('lobby-ready') as HTMLButtonElement).disabled = !me?.connected;
+    $('lobby-ready').textContent = isReady ? 'ยกเลิกพร้อม' : 'พร้อมเล่น';
+    $('lobby-status').textContent = `${state.players.filter(player => player.connected).length}/4 คนเข้าห้อง · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - 1)}${state.mode === 'teams' ? ' · ทีม A/B สลับตามลำดับเข้าห้อง' : ''}`;
     return;
   }
   $('player-strip').replaceChildren(...state.players.map(player => {
@@ -464,7 +487,7 @@ function updateTimer(): void {
   if (!gameState || gameState.phase !== 'playing' || !gameState.activeId) { stopClockSound(); return; }
   const seconds = Math.max(0, Math.ceil((gameState.deadline - Date.now()) / 1000));
   $('timer').textContent = `${seconds}s`;
-  if (seconds > 0 && seconds <= 5 && soundEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {
+  if (seconds > 0 && seconds <= 5 && sfxEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {
     if (clockSound.paused) void clockSound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
   } else if (!clockSound.paused) stopClockSound();
 }

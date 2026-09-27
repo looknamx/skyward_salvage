@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import type { GameState } from '../shared/game.ts';
+
+function startRound(state: GameState, seed: number, now: number): void {
+  if (state.phase === 'lobby') state.lobbyReady = state.players.filter(player => player.id !== state.hostId).map(player => player.id);
+  startRoundCore(state, seed, now);
+}
+
+test('lobby start waits for every guest to be ready', () => {
+  const state = createState('READY1', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'vesper'));
+  assert.throws(() => startRoundCore(state, 1, 1000), /กดพร้อม/);
+  state.lobbyReady.push('p2');
+  startRoundCore(state, 1, 1000);
+  assert.equal(state.phase, 'playing');
+});
 
 test('round starts with 2–4 players, seeded terrain, and a server turn', () => {
   for (const count of [2, 3, 4]) {
@@ -131,7 +146,7 @@ test('2v2 assigns teams, prevents friendly fire, and supports a same-room round 
 });
 
 test('each Mobile has a single-use special shot that resets next round', () => {
-  for (const mobile of ['loom', 'manta', 'borer'] as const) {
+  for (const mobile of ['loom', 'manta', 'borer', 'vesper', 'bramble'] as const) {
     const state = createState('SKILL1', 'p1', 'One', mobile);
     state.players.push(makePlayer('p2', 'Two', 'loom'));
     startRound(state, 47, 1000);
@@ -149,6 +164,26 @@ test('each Mobile has a single-use special shot that resets next round', () => {
     startRound(state, 48, 2000);
     assert.equal(state.players[0].specialAvailable, true);
   }
+});
+
+test('Vesper ignores wind with its special and Bramble restores health', () => {
+  const vesper = createState('VESPER', 'p1', 'One', 'vesper');
+  vesper.players.push(makePlayer('p2', 'Two', 'loom'));
+  startRound(vesper, 18, 1000);
+  const calm = structuredClone(vesper);
+  calm.wind = 0;
+  const windy = structuredClone(vesper);
+  windy.wind = 8;
+  const calmShot = fireShot(calm, 'p1', 45, 45, 1100, true);
+  const windyShot = fireShot(windy, 'p1', 45, 45, 1100, true);
+  assert.deepEqual(windyShot.paths, calmShot.paths);
+
+  const bramble = createState('BRAMBL', 'p1', 'One', 'bramble');
+  bramble.players.push(makePlayer('p2', 'Two', 'loom'));
+  startRound(bramble, 18, 1000);
+  bramble.players[0].hp = 60;
+  fireShot(bramble, 'p1', 45, 45, 1100, true);
+  assert.ok(bramble.players[0].hp >= 60 && bramble.players[0].hp <= 82);
 });
 
 test('an item drops on turn 8 and only an empty matching slot can collect it', () => {

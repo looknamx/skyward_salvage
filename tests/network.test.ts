@@ -61,6 +61,19 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         host.send({ type: 'set-mode', mode: 'teams' });
         await host.waitFor(e => e.type === 'state' && e.state.mode === 'teams');
       }
+      host.send({ type: 'select', mobile: 'bramble' });
+      clients[1].send({ type: 'select', mobile: 'vesper' });
+      await host.waitFor(e => e.type === 'state' && e.state.players[0]?.mobile === 'bramble' && e.state.players[1]?.mobile === 'vesper');
+      if (count === 2) {
+        host.send({ type: 'start' });
+        await host.waitFor(e => e.type === 'error' && /กดพร้อม/.test(e.message));
+      }
+      for (let i = 1; i < count; i++) clients[i].send({ type: 'lobby-ready', ready: true });
+      await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      if (count === 2) {
+        clients[1].send({ type: 'select', mobile: 'manta' });
+        await clients[1].waitFor(e => e.type === 'error' && /ยกเลิกพร้อม/.test(e.message));
+      }
       host.send({ type: 'start' });
       const states = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'state' && e.state.phase === 'playing')));
       for (const event of states) {

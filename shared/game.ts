@@ -7,7 +7,7 @@ export const MOVE_SPEED = 88;
 export const TURN_MOVE_LIMIT = 350;
 export const MIN_POWER = 5;
 
-export type MobileKind = 'loom' | 'manta' | 'borer';
+export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble';
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport';
 export type MatchMode = 'ffa' | 'teams';
@@ -49,6 +49,7 @@ export interface GameState {
   mode: MatchMode;
   winnerTeam: Team | null;
   rematchReady: string[];
+  lobbyReady: string[];
   drops: ItemDrop[];
 }
 
@@ -58,9 +59,10 @@ export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; imp
 export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
 export type ClientAction =
-  | { type: 'create'; name: string; mobile: MobileKind }
-  | { type: 'join'; code: string; name: string; mobile: MobileKind }
+  | { type: 'create'; name: string; mobile?: MobileKind }
+  | { type: 'join'; code: string; name: string; mobile?: MobileKind }
   | { type: 'select'; mobile: MobileKind }
+  | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
   | { type: 'set-mode'; mode: MatchMode }
   | { type: 'rematch-ready'; ready: boolean }
@@ -84,6 +86,8 @@ export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; dam
   loom: { label: 'Loom', color: 0xf67868, damage: 32, radius: 58, crater: 25 },
   manta: { label: 'Manta', color: 0x4ab8af, damage: 22, radius: 42, crater: 16 },
   borer: { label: 'Borer', color: 0xf5c35a, damage: 38, radius: 68, crater: 40 },
+  vesper: { label: 'Vesper', color: 0xb897ef, damage: 29, radius: 49, crater: 19 },
+  bramble: { label: 'Bramble', color: 0x9bcf83, damage: 27, radius: 55, crater: 18 },
 };
 const ITEM_KINDS: ItemKind[] = ['double', 'repair', 'teleport'];
 function emptyStats(): PlayerStats { return { shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, itemsUsed: 0, pickups: 0, distanceMoved: 0 }; }
@@ -132,7 +136,7 @@ export function createState(code: string, hostId: string, name: string, mobile: 
     code, phase: 'lobby', hostId,
     players: [makePlayer(hostId, name, mobile)], terrain: [], map: 'cloud-reef',
     seed: 0, wind: 0, turn: 0, activeId: null, deadline: 0, winnerId: null,
-    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', winnerTeam: null, rematchReady: [], drops: [],
+    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
   };
 }
 
@@ -146,6 +150,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   if (state.phase !== 'lobby' && state.phase !== 'finished') throw new Error('เริ่มรอบใหม่ไม่ได้');
   if (state.players.length < 2 || state.players.length > MAX_PLAYERS || state.players.some(player => !player.connected)) throw new Error('ต้องมีผู้เล่นที่เชื่อมต่อ 2–4 คน');
   if (state.mode === 'teams' && state.players.length !== 4) throw new Error('โหมดทีมต้องมีผู้เล่น 4 คน');
+  if (state.phase === 'lobby' && state.players.some(player => player.id !== state.hostId && !state.lobbyReady.includes(player.id))) throw new Error('รอให้ผู้เล่นทุกคนกดพร้อม');
   const maps: MapKind[] = ['cloud-reef', 'clockwork-orchard', 'glass-dunes'];
   state.seed = seed;
   state.map = maps[seed % maps.length];
@@ -171,6 +176,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.winnerId = null;
   state.winnerTeam = null;
   state.rematchReady = [];
+  state.lobbyReady = [];
   state.drops = [];
   state.message = `${state.players[0].name} กำลังเล็ง`;
 }
@@ -292,7 +298,7 @@ function shotOrigin(state: GameState, player: PlayerState, radians: number): Poi
   };
 }
 
-function trace(state: GameState, player: PlayerState, angle: number, power: number, offset: number): { path: Point[]; hit: Point | null } {
+function trace(state: GameState, player: PlayerState, angle: number, power: number, offset: number, windFactor = 1): { path: Point[]; hit: Point | null } {
   const radians = (angle + offset) * Math.PI / 180;
   const speed = 280 + power * 4.2;
   const origin = shotOrigin(state, player, radians);
@@ -303,7 +309,7 @@ function trace(state: GameState, player: PlayerState, angle: number, power: numb
   const path: Point[] = [{ x, y }];
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += state.wind * 13 * dt;
+    vx += state.wind * 13 * windFactor * dt;
     vy += 440 * dt;
     x += vx * dt;
     y += vy * dt;
@@ -369,8 +375,16 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
   const info = MOBILE_INFO[player.mobile];
   const result: ShotResult = { kind: 'damage', paths: [], impacts: [], special, hitIds: [] };
   const heading = worldAngle(state, player, angle);
-  const shots = player.mobile === 'manta' ? traceManta(state, player, heading, power, special) : [trace(state, player, heading, power, 0)];
-  const blast = special ? player.mobile === 'loom' ? { damage: 52, radius: 38, crater: 16 } : player.mobile === 'borer' ? { damage: 50, radius: 88, crater: 54 } : { damage: 20, radius: 37, crater: 14 } : info;
+  const windFactor = player.mobile === 'vesper' ? special ? 0 : 0.45 : 1;
+  const shots = player.mobile === 'manta' ? traceManta(state, player, heading, power, special) : [trace(state, player, heading, power, 0, windFactor)];
+  const specialBlast: Record<MobileKind, { damage: number; radius: number; crater: number }> = {
+    loom: { damage: 52, radius: 38, crater: 16 },
+    manta: { damage: 20, radius: 37, crater: 14 },
+    borer: { damage: 50, radius: 88, crater: 54 },
+    vesper: { damage: 44, radius: 42, crater: 12 },
+    bramble: { damage: 34, radius: 58, crater: 12 },
+  };
+  const blast = special ? specialBlast[player.mobile] : info;
   const hitIds = new Set<string>();
   for (const shot of shots) {
     result.paths.push(shot.path);
@@ -400,6 +414,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
   player.stats.shots++;
   if (hitIds.size) player.stats.hits++;
   result.hitIds = [...hitIds];
+  if (special && player.mobile === 'bramble' && player.hp > 0) player.hp = Math.min(100, player.hp + 22);
   if (special) { player.specialAvailable = false; player.stats.itemsUsed++; }
   player.doubleArmed = false;
   finishOrAdvance(state, now);

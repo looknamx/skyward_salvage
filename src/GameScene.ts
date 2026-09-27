@@ -7,7 +7,7 @@ const backgrounds = {
   'clockwork-orchard': '/assets/environment/clockwork-orchard.png',
   'glass-dunes': '/assets/environment/glass-dunes.png',
 };
-const kinds: MobileKind[] = ['loom', 'manta', 'borer'];
+const kinds: MobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble'];
 const surfaceColors = {
   'cloud-reef': { shadow: '#173c50', rim: '#7dc8c6', grass: '#f1eee0', flower: '#ef8d78', water: '#a4e8ed' },
   'clockwork-orchard': { shadow: '#493645', rim: '#cc9c67', grass: '#f6dfad', flower: '#f3a36c', water: '#b5e4ed' },
