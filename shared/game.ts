@@ -7,7 +7,8 @@ export const MOVE_SPEED = 88;
 export const TURN_MOVE_LIMIT = 350;
 export const MIN_POWER = 5;
 
-export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble';
+export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'aegis';
+export type OrdinaryMobileKind = Exclude<MobileKind, 'aegis'>;
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport';
 export type MatchMode = 'ffa' | 'teams';
@@ -30,6 +31,7 @@ export interface PlayerState {
   specialAvailable: boolean;
   stats: PlayerStats;
   walkedThisTurn: number;
+  randomUsed: boolean;
 }
 
 export interface GameState {
@@ -59,9 +61,10 @@ export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; imp
 export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
 export type ClientAction =
-  | { type: 'create'; name: string; mobile?: MobileKind }
-  | { type: 'join'; code: string; name: string; mobile?: MobileKind }
-  | { type: 'select'; mobile: MobileKind }
+  | { type: 'create'; name: string; mobile?: OrdinaryMobileKind }
+  | { type: 'join'; code: string; name: string; mobile?: OrdinaryMobileKind }
+  | { type: 'select'; mobile: OrdinaryMobileKind }
+  | { type: 'random-mobile' }
   | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
   | { type: 'set-mode'; mode: MatchMode }
@@ -82,13 +85,19 @@ export type ServerEvent =
   | { type: 'match-summary'; summary: MatchSummary }
   | { type: 'error'; message: string };
 
-export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; damage: number; radius: number; crater: number }> = {
-  loom: { label: 'Loom', color: 0xf67868, damage: 32, radius: 58, crater: 25 },
-  manta: { label: 'Manta', color: 0x4ab8af, damage: 22, radius: 42, crater: 16 },
-  borer: { label: 'Borer', color: 0xf5c35a, damage: 38, radius: 68, crater: 40 },
-  vesper: { label: 'Vesper', color: 0xb897ef, damage: 29, radius: 49, crater: 19 },
-  bramble: { label: 'Bramble', color: 0x9bcf83, damage: 27, radius: 55, crater: 18 },
+export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; damage: number; radius: number; crater: number; maxHp: number }> = {
+  loom: { label: 'Loom', color: 0xf67868, damage: 32, radius: 58, crater: 25, maxHp: 100 },
+  manta: { label: 'Manta', color: 0x4ab8af, damage: 22, radius: 42, crater: 16, maxHp: 100 },
+  borer: { label: 'Borer', color: 0xf5c35a, damage: 38, radius: 68, crater: 40, maxHp: 100 },
+  vesper: { label: 'Vesper', color: 0xb897ef, damage: 29, radius: 49, crater: 19, maxHp: 100 },
+  bramble: { label: 'Bramble', color: 0x9bcf83, damage: 27, radius: 55, crater: 18, maxHp: 100 },
+  aegis: { label: 'Aegis', color: 0x72d9f4, damage: 34, radius: 59, crater: 24, maxHp: 150 },
 };
+export const ORDINARY_MOBILES: OrdinaryMobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble'];
+export function randomMobileFromRoll(rareRoll: number, ordinaryRoll: number): MobileKind {
+  if (rareRoll < 0.05) return 'aegis';
+  return ORDINARY_MOBILES[Math.min(ORDINARY_MOBILES.length - 1, Math.floor(ordinaryRoll * ORDINARY_MOBILES.length))];
+}
 const ITEM_KINDS: ItemKind[] = ['double', 'repair', 'teleport'];
 function emptyStats(): PlayerStats { return { shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, itemsUsed: 0, pickups: 0, distanceMoved: 0 }; }
 
@@ -141,9 +150,9 @@ export function createState(code: string, hostId: string, name: string, mobile: 
 }
 
 export function makePlayer(id: string, name: string, mobile: MobileKind): PlayerState {
-  return { id, name, mobile, x: 0, y: 0, hp: 100,
+  return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
     items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1,
-    team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0 };
+    team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false };
 }
 
 export function startRound(state: GameState, seed: number, now: number): void {
@@ -158,7 +167,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   const slots: Record<number, number[]> = { 2: [210, 1070], 3: [180, 640, 1100], 4: [160, 470, 810, 1120] };
   state.players.forEach((player, index) => {
     player.x = slots[state.players.length][index];
-    player.hp = 100;
+    player.hp = MOBILE_INFO[player.mobile].maxHp;
     player.items = { double: 1, repair: 1, teleport: 1 };
     player.doubleArmed = false;
     player.facing = player.x > WIDTH / 2 ? -1 : 1;
@@ -383,6 +392,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
     borer: { damage: 50, radius: 88, crater: 54 },
     vesper: { damage: 44, radius: 42, crater: 12 },
     bramble: { damage: 34, radius: 58, crater: 12 },
+    aegis: { damage: 46, radius: 66, crater: 28 },
   };
   const blast = special ? specialBlast[player.mobile] : info;
   const hitIds = new Set<string>();
@@ -414,7 +424,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
   player.stats.shots++;
   if (hitIds.size) player.stats.hits++;
   result.hitIds = [...hitIds];
-  if (special && player.mobile === 'bramble' && player.hp > 0) player.hp = Math.min(100, player.hp + 22);
+  if (special && player.mobile === 'bramble' && player.hp > 0) player.hp = Math.min(MOBILE_INFO[player.mobile].maxHp, player.hp + 22);
   if (special) { player.specialAvailable = false; player.stats.itemsUsed++; }
   player.doubleArmed = false;
   finishOrAdvance(state, now);
@@ -451,7 +461,7 @@ export function useItem(state: GameState, playerId: string, item: ItemKind, now:
     return;
   }
   if (item === 'repair') {
-    player.hp = Math.min(100, player.hp + 28);
+    player.hp = Math.min(MOBILE_INFO[player.mobile].maxHp, player.hp + 28);
     player.items.repair--;
     player.stats.itemsUsed++;
     finishOrAdvance(state, now);

@@ -3,8 +3,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, movePlayer, startRound, turnPlayer, useItem } from '../shared/game.ts';
-import type { ClientAction, GameState, MatchSummary, MobileKind, ServerEvent } from '../shared/game.ts';
+import { createState, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, MOBILE_INFO, movePlayer, randomMobileFromRoll, startRound, turnPlayer, useItem } from '../shared/game.ts';
+import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
 const RECONNECT_GRACE_MS = 45_000;
@@ -122,7 +122,7 @@ function cleanName(value: unknown): string {
   if (!name) throw new Error('กรุณาใส่ชื่อ');
   return name;
 }
-function mobile(value: unknown): MobileKind {
+function mobile(value: unknown): OrdinaryMobileKind {
   if (value !== 'loom' && value !== 'manta' && value !== 'borer' && value !== 'vesper' && value !== 'bramble') throw new Error('Mobile ไม่ถูกต้อง');
   return value;
 }
@@ -174,7 +174,17 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
   if (action.type === 'select') {
     if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยน Mobile');
+    if (player.randomUsed) throw new Error('สุ่ม Mobile แล้ว ไม่สามารถเปลี่ยนคันได้');
     player.mobile = mobile(action.mobile);
+    player.hp = MOBILE_INFO[player.mobile].maxHp;
+  } else if (action.type === 'random-mobile') {
+    if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
+    if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนสุ่ม Mobile');
+    if (player.randomUsed) throw new Error('สุ่ม Mobile ได้ครั้งเดียวต่อห้อง');
+    const rolls = randomBytes(8);
+    player.mobile = randomMobileFromRoll(rolls.readUInt32LE(0) / 4294967296, rolls.readUInt32LE(4) / 4294967296);
+    player.hp = MOBILE_INFO[player.mobile].maxHp;
+    player.randomUsed = true;
   } else if (action.type === 'lobby-ready') {
     if (state.phase !== 'lobby' || state.hostId === current.id) throw new Error('ผู้เล่นในห้องเท่านั้นที่กดพร้อมได้');
     if (typeof action.ready !== 'boolean') throw new Error('สถานะพร้อมไม่ถูกต้อง');

@@ -57,6 +57,18 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(joined.type, 'welcome');
         sessionTokens.push(joined.token);
       }
+      if (count === 3) {
+        clients[2].send({ type: 'select', mobile: 'aegis' });
+        await clients[2].waitFor(e => e.type === 'error' && /Mobile/.test(e.message));
+        clients[2].send({ type: 'random-mobile' });
+        const rolled = await clients[2].waitFor(e => e.type === 'state' && e.state.players[2].randomUsed);
+        assert.equal(rolled.type, 'state');
+        assert.equal(rolled.state.players[2].hp, rolled.state.players[2].mobile === 'aegis' ? 150 : 100);
+        clients[2].send({ type: 'random-mobile' });
+        await clients[2].waitFor(e => e.type === 'error' && /ครั้งเดียว/.test(e.message));
+        clients[2].send({ type: 'select', mobile: 'loom' });
+        await clients[2].waitFor(e => e.type === 'error' && /ไม่สามารถเปลี่ยนคันได้/.test(e.message));
+      }
       if (count === 4) {
         host.send({ type: 'set-mode', mode: 'teams' });
         await host.waitFor(e => e.type === 'state' && e.state.mode === 'teams');

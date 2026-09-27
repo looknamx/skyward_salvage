@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GameScene } from './GameScene.ts';
 import { MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT } from '../shared/game.ts';
-import type { ClientAction, GameState, MatchSummary, MobileKind, ServerEvent } from '../shared/game.ts';
+import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -21,7 +21,7 @@ let teleportMode = false;
 let specialMode = false;
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
-const pressed = { left: false, right: false };
+const keysDown = new Set<string>();
 const touchPressed = { left: false, right: false };
 const touchReleaseHandlers: Array<() => void> = [];
 let sentDirection: -1 | 0 | 1 = 0;
@@ -105,10 +105,14 @@ function toast(message: string): void {
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => element.classList.remove('show'), 3200);
 }
-function pickMobile(kind: MobileKind): void {
-  if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId)) send({ type: 'select', mobile: kind });
+function pickMobile(kind: OrdinaryMobileKind): void {
+  if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId) && !gameState.players.find(player => player.id === playerId)?.randomUsed) send({ type: 'select', mobile: kind });
 }
-document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => button.addEventListener('click', () => pickMobile(button.dataset.mobile as MobileKind)));
+document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => button.addEventListener('click', () => pickMobile(button.dataset.mobile as OrdinaryMobileKind)));
+$('random-mobile').addEventListener('click', () => {
+  const me = gameState?.players.find(player => player.id === playerId);
+  if (gameState?.phase === 'lobby' && me && !me.randomUsed && !gameState.lobbyReady.includes(playerId)) send({ type: 'random-mobile' });
+});
 
 function userName(): string {
   const value = $('name') as HTMLInputElement;
@@ -217,30 +221,30 @@ function setTeleportMode(value: boolean): void {
   if (value) setSpecialMode(false);
   teleportMode = value;
   $('item-teleport').classList.toggle('selected', value);
-  $('fire').classList.toggle('portal-armed', value);
-  $('fire').textContent = value ? 'PORTAL' : specialMode ? 'SKILL' : 'FIRE';
+  $('fire').classList.toggle('warp-armed', value);
+  $('fire').textContent = value ? 'WARP' : specialMode ? 'SKILL' : 'FIRE';
 }
 function setSpecialMode(value: boolean): void {
   if (value) setTeleportMode(false);
   specialMode = value;
   $('item-special').classList.toggle('selected', value);
   $('fire').classList.toggle('special-armed', value);
-  $('fire').textContent = value ? 'SKILL' : teleportMode ? 'PORTAL' : 'FIRE';
+  $('fire').textContent = value ? 'SKILL' : teleportMode ? 'WARP' : 'FIRE';
 }
 
 function canControl(): boolean {
   return socket?.readyState === WebSocket.OPEN && !resumePending && gameState?.phase === 'playing' && gameState.activeId === playerId;
 }
 function syncMovement(): void {
-  const left = pressed.left || touchPressed.left;
-  const right = pressed.right || touchPressed.right;
+  const left = keysDown.has('ArrowLeft') || keysDown.has('KeyA') || touchPressed.left;
+  const right = keysDown.has('ArrowRight') || keysDown.has('KeyD') || touchPressed.right;
   const direction: -1 | 0 | 1 = !canControl() ? 0 : left === right ? 0 : left ? -1 : 1;
   if (direction === sentDirection) return;
   sentDirection = direction;
   if (socket?.readyState === WebSocket.OPEN && !resumePending) send({ type: 'move', direction });
 }
 function releaseMovement(): void {
-  pressed.left = false; pressed.right = false;
+  keysDown.clear();
   touchReleaseHandlers.forEach(release => release());
   syncMovement();
 }
@@ -343,19 +347,19 @@ document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(butto
 });
 window.addEventListener('keydown', event => {
   if (!canControl() || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-    pressed[event.key === 'ArrowLeft' ? 'left' : 'right'] = true;
+  if (event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'KeyA' || event.code === 'KeyD') {
+    keysDown.add(event.code);
     syncMovement(); event.preventDefault();
-  } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-    adjustAngle(event.key === 'ArrowUp' ? 1 : -1); event.preventDefault();
+  } else if (event.code === 'ArrowUp' || event.code === 'ArrowDown' || event.code === 'KeyW' || event.code === 'KeyS') {
+    adjustAngle(event.code === 'ArrowUp' || event.code === 'KeyW' ? 1 : -1); event.preventDefault();
   } else if (event.code === 'KeyR') {
     if (!event.repeat) { releaseMovement(); send({ type: 'turn' }); }
     event.preventDefault();
   } else if (event.code === 'Space') { if (!event.repeat) beginCharge(); event.preventDefault(); }
 });
 window.addEventListener('keyup', event => {
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-    pressed[event.key === 'ArrowLeft' ? 'left' : 'right'] = false;
+  if (event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'KeyA' || event.code === 'KeyD') {
+    keysDown.delete(event.code);
     syncMovement(); event.preventDefault();
   } else if (event.code === 'Space') { endCharge(true); event.preventDefault(); }
 });
@@ -393,8 +397,11 @@ function render(state: GameState): void {
     const isReady = state.lobbyReady.includes(playerId);
     document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => {
       button.classList.toggle('selected', button.dataset.mobile === me?.mobile);
-      button.disabled = isReady || !me?.connected;
+      button.disabled = isReady || !me?.connected || !!me.randomUsed;
     });
+    ($('random-mobile') as HTMLButtonElement).disabled = isReady || !me?.connected || !!me.randomUsed;
+    $('random-mobile').textContent = me?.randomUsed ? '🎲 สุ่มแล้ว' : '🎲 สุ่ม Mobile';
+    $('rare-mobile-result').classList.toggle('hidden', me?.mobile !== 'aegis');
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
@@ -422,10 +429,11 @@ function render(state: GameState): void {
     const info = document.createElement('div'); info.className = 'player-info';
     const head = document.createElement('div'); head.className = 'player-head';
     const name = document.createElement('b'); name.textContent = player.name + (state.mode === 'teams' ? ` · ${player.team === 0 ? 'A' : 'B'}` : '');
-    const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/100`;
+    const maxHp = MOBILE_INFO[player.mobile].maxHp;
+    const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/${maxHp}`;
     head.append(name, meta);
     const track = document.createElement('div'); track.className = 'hp-track';
-    const fill = document.createElement('div'); fill.className = 'hp-fill'; fill.style.width = `${player.hp}%`;
+    const fill = document.createElement('div'); fill.className = 'hp-fill'; fill.style.width = `${100 * player.hp / maxHp}%`;
     track.append(fill); info.append(head, track); card.append(portrait, info);
     return card;
   }));

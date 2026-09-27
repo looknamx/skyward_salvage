@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
 import type { GameState } from '../shared/game.ts';
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -15,6 +15,22 @@ test('lobby start waits for every guest to be ready', () => {
   state.lobbyReady.push('p2');
   startRoundCore(state, 1, 1000);
   assert.equal(state.phase, 'playing');
+});
+
+test('rare Mobile roll has a five percent boundary and 150 maximum HP', () => {
+  assert.equal(randomMobileFromRoll(0, 0.5), 'aegis');
+  assert.equal(randomMobileFromRoll(0.049999, 0.5), 'aegis');
+  assert.equal(randomMobileFromRoll(0.05, 0), 'loom');
+  assert.equal(randomMobileFromRoll(0.99, 0.999), 'bramble');
+  const state = createState('RARE15', 'p1', 'Rare', 'aegis');
+  state.players.push(makePlayer('p2', 'Other', 'loom'));
+  assert.equal(state.players[0].hp, 150);
+  state.players[0].hp = 12;
+  startRound(state, 12, 1000);
+  assert.equal(state.players[0].hp, 150);
+  state.players[0].hp = 130;
+  useItem(state, 'p1', 'repair', 1100);
+  assert.equal(state.players[0].hp, 150);
 });
 
 test('round starts with 2–4 players, seeded terrain, and a server turn', () => {
