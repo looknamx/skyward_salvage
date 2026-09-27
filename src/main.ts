@@ -284,6 +284,7 @@ function adjustAngle(amount: number): void {
 const settingsToggle = $('settings-toggle') as HTMLButtonElement;
 const settingsPopup = $('settings-popup');
 const touchToggle = $('touch-controls-toggle') as HTMLInputElement;
+const guidanceToggle = $('guidance-toggle') as HTMLInputElement;
 const touchDpad = $('touch-dpad');
 const bgmToggle = $('bgm-toggle') as HTMLInputElement;
 const sfxToggle = $('sfx-toggle') as HTMLInputElement;
@@ -297,6 +298,15 @@ function setTouchControls(visible: boolean): void {
   if (!visible) touchReleaseHandlers.forEach(release => release());
   try { localStorage.setItem('skyward-touch-controls', visible ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
 }
+function setGuidanceVisible(visible: boolean): void {
+  guidanceToggle.checked = visible;
+  $('turn-banner').classList.toggle('hidden', !visible);
+  $('control-hint').classList.toggle('hidden', !visible);
+  try { localStorage.setItem('skyward-guidance', visible ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
+}
+try { setGuidanceVisible(localStorage.getItem('skyward-guidance') === 'on'); }
+catch { setGuidanceVisible(false); }
+guidanceToggle.addEventListener('change', () => setGuidanceVisible(guidanceToggle.checked));
 try {
   const savedTouchControls = localStorage.getItem('skyward-touch-controls');
   setTouchControls(savedTouchControls === null ? matchMedia('(pointer: coarse)').matches : savedTouchControls === 'on');

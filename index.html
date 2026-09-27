@@ -68,6 +68,7 @@
         <div id="settings-popup" class="settings-popup hidden" role="dialog" aria-labelledby="settings-title">
           <div class="settings-heading"><strong id="settings-title">ตั้งค่า</strong><button id="settings-close" type="button" aria-label="ปิดการตั้งค่า">×</button></div>
           <label class="settings-option" for="touch-controls-toggle"><span>ปุ่มลูกศรบนหน้าจอ<small>เดินและปรับมุมสำหรับมือถือ</small></span><input id="touch-controls-toggle" type="checkbox" /></label>
+          <label class="settings-option" for="guidance-toggle"><span>ข้อความแนะนำการเล่น<small>แสดงข้อความบอกเทิร์นและวิธีควบคุม</small></span><input id="guidance-toggle" type="checkbox" /></label>
           <label class="settings-option" for="bgm-toggle"><span>BGM<small>เพลงพื้นหลัง</small></span><input id="bgm-toggle" type="checkbox" checked /></label>
           <label class="settings-option" for="sfx-toggle"><span>SFX<small>เสียงยิง ไอเทม ลม และเสียงเตือน</small></span><input id="sfx-toggle" type="checkbox" checked /></label>
           <div id="practice-options" class="practice-options hidden"><button id="practice-reset" type="button">เริ่มสนามฝึกใหม่</button><button id="practice-exit" type="button">ออกจากโหมดฝึก</button></div>
@@ -78,8 +79,8 @@
           <button class="dpad-right" type="button" data-direction="right" aria-label="เดินขวา">▶</button>
           <button class="dpad-down" type="button" data-direction="down" aria-label="ลดมุมยิง">▼</button>
         </div>
-        <div id="turn-banner"></div>
-        <div id="control-hint">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
+        <div id="turn-banner" class="hidden"></div>
+        <div id="control-hint" class="hidden">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
         <div id="controls">
           <div class="aim-panel">
             <div class="aim-dial"><span class="dial-needle" id="dial-needle"></span><output id="angle-value">45°</output></div>
