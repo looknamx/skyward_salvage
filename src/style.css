@@ -187,3 +187,13 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
   .landing-card #create{min-height:40px}
   .landing-card #landing-error{grid-column:2;margin-top:4px}
 }
+
+/* Keep HUD text and meters solid while letting the battlefield show through its panels. */
+#hud{--hud-glass:rgba(13,34,57,.35)}
+#hud .player-card,#hud .weather-panel,#hud .aim-panel,#hud .item-panel{
+  background:var(--hud-glass);
+  -webkit-backdrop-filter:blur(4px);
+  backdrop-filter:blur(4px);
+}
+#hud .item-panel button{background:rgba(15,37,61,.28)}
+#hud .player-head,#hud .weather-panel,#hud .aim-sliders,#hud .item-panel button span{text-shadow:0 1px 3px #061728}

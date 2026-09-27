@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, dropKindForRoll, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, dropKindForRoll, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
 import type { GameState } from '../shared/game.ts';
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -107,6 +107,7 @@ test('walking is gradual, follows terrain, and is restricted to the active turn'
 });
 
 test('walking has a cumulative per-turn limit and resets on the next turn', () => {
+  assert.equal(TURN_MOVE_LIMIT, 175);
   const state = createState('WALK42', 'p1', 'One', 'loom');
   state.players.push(makePlayer('p2', 'Two', 'manta'));
   startRound(state, 9, 1000);
@@ -119,6 +120,31 @@ test('walking has a cumulative per-turn limit and resets on the next turn', () =
   finishOrAdvance(state, 3000);
   assert.equal(state.players[0].walkedThisTurn, 0);
   assert.equal(movePlayer(state, 'p1', 1, 100), true);
+});
+
+test('rematch returns to lobby and requires fresh Mobile choices and readiness', () => {
+  const state = createState('REMAT1', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'manta'));
+  startRound(state, 23, 1000);
+  state.phase = 'finished';
+  state.players[0].mobile = 'aegis';
+  state.players[0].randomUsed = true;
+  state.players[0].hp = 12;
+  state.rematchReady = ['p1', 'p2'];
+  returnToLobby(state);
+  assert.equal(state.phase, 'lobby');
+  assert.deepEqual(state.players.map(player => player.mobile), ['loom', 'loom']);
+  assert.deepEqual(state.players.map(player => player.randomUsed), [false, false]);
+  assert.deepEqual(state.players.map(player => player.hp), [100, 100]);
+  assert.equal(state.rematchReady.length, 0);
+  assert.equal(state.lobbyReady.length, 0);
+  assert.equal(state.terrain.length, 0);
+  assert.throws(() => startRoundCore(state, 24, 2000), /กดพร้อม/);
+  state.players[1].mobile = 'borer';
+  state.lobbyReady.push('p2');
+  startRoundCore(state, 24, 2000);
+  assert.equal(state.phase, 'playing');
+  assert.equal(state.players[1].mobile, 'borer');
 });
 
 test('wind only changes on seeded 20 percent rolls', () => {

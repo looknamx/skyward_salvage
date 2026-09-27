@@ -4,7 +4,7 @@ export const STEP = 10;
 export const TURN_MS = 30_000;
 export const MAX_PLAYERS = 4;
 export const MOVE_SPEED = 88;
-export const TURN_MOVE_LIMIT = 350;
+export const TURN_MOVE_LIMIT = 175;
 export const MIN_POWER = 5;
 
 export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'aegis';
@@ -194,6 +194,24 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.lobbyReady = [];
   state.drops = [];
   state.message = `${state.players[0].name} กำลังเล็ง`;
+}
+
+export function returnToLobby(state: GameState): void {
+  if (state.phase !== 'finished') throw new Error('ยังไม่จบรอบ');
+  state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, 'loom'), connected: player.connected }));
+  state.phase = 'lobby';
+  state.terrain = [];
+  state.seed = 0;
+  state.wind = 0;
+  state.turn = 0;
+  state.activeId = null;
+  state.deadline = 0;
+  state.winnerId = null;
+  state.winnerTeam = null;
+  state.rematchReady = [];
+  state.lobbyReady = [];
+  state.drops = [];
+  state.message = 'เลือกรถแล้วกดพร้อมเพื่อเริ่มรอบใหม่';
 }
 
 export function windFor(seed: number, turn: number): number {

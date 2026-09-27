@@ -67,6 +67,20 @@ export class GameScene extends Phaser.Scene {
   private applyState(state: GameState): void {
     this.state = state;
     if (!this.backdrop) return;
+    if (state.phase === 'lobby') {
+      this.effect = null;
+      this.pendingState = null;
+      this.terrainImage.setVisible(false);
+      for (const image of this.mobiles.values()) image.destroy();
+      for (const label of this.labels.values()) label.destroy();
+      for (const entry of this.drops.values()) { this.tweens.killTweensOf(entry.image); entry.image.destroy(); }
+      this.mobiles.clear();
+      this.labels.clear();
+      this.drops.clear();
+      this.terrainKey = '';
+      return;
+    }
+    this.terrainImage.setVisible(true);
     if (this.backdrop.texture.key !== state.map) this.backdrop.setTexture(state.map);
     const key = `${state.seed}:${state.map}:${state.terrain.join(',')}`;
     if (state.terrain.length && key !== this.terrainKey) {

@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, MOBILE_INFO, movePlayer, randomMobileFromRoll, startRound, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, MOBILE_INFO, movePlayer, randomMobileFromRoll, returnToLobby, startRound, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -69,7 +69,7 @@ function tryRematch(state: GameState): void {
   state.players = connected;
   if (!connected.some(player => player.id === state.hostId)) state.hostId = connected[0].id;
   summarySent.delete(state.code);
-  startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
+  returnToLobby(state);
 }
 function resumePlayer(ws: WebSocket, token: string): void {
   const session = sessions.get(token);

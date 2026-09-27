@@ -367,9 +367,10 @@ window.addEventListener('blur', () => { releaseMovement(); endCharge(false); });
 
 function render(state: GameState): void {
   const previous = gameState;
-  if (previous?.phase === 'finished' && state.phase === 'playing') {
+  if (previous?.phase === 'finished' && state.phase !== 'finished') {
     setTeleportMode(false);
     setSpecialMode(false);
+    lastOwnTurn = 0;
     $('result-stats').replaceChildren();
   }
   if (previous?.phase === 'playing') {
@@ -467,8 +468,8 @@ function render(state: GameState): void {
     $('result-title').textContent = state.mode === 'teams' && state.winnerTeam !== null ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : state.winnerId ? `${state.players.find(player => player.id === state.winnerId)?.name ?? ''} ชนะ!` : 'เสมอ!';
     const connectedCount = state.players.filter(player => player.connected).length;
     const enoughPlayers = connectedCount >= 2 && (state.mode !== 'teams' || connectedCount === 4);
-    $('ready-status').textContent = enoughPlayers ? `พร้อมเล่นอีกครั้ง ${state.rematchReady.length}/${connectedCount} คน` : state.mode === 'teams' ? 'รีแมตช์ทีมต้องมีครบ 4 คน' : 'รีแมตช์ต้องมีอย่างน้อย 2 คน';
-    $('rematch-ready').textContent = state.rematchReady.includes(playerId) ? 'ยกเลิกพร้อม' : 'พร้อมเล่นอีกครั้ง';
+    $('ready-status').textContent = enoughPlayers ? `พร้อมกลับห้องเตรียมเกม ${state.rematchReady.length}/${connectedCount} คน` : state.mode === 'teams' ? 'รีแมตช์ทีมต้องมีครบ 4 คน' : 'รีแมตช์ต้องมีอย่างน้อย 2 คน';
+    $('rematch-ready').textContent = state.rematchReady.includes(playerId) ? 'ยกเลิกพร้อม' : 'รีแมตช์ · เลือกรถใหม่';
     ($('rematch-ready') as HTMLButtonElement).disabled = !enoughPlayers;
   }
   updateAim();
