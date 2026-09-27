@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, dropKindForRoll, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, randomMobileFromRoll, resetPractice, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, weatherForRoll, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, movePlayer, MOVE_SPEED, randomMobileFromRoll, resetPractice, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
 import type { GameState } from '../shared/game.ts';
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -21,7 +21,7 @@ test('rare Mobile roll has a five percent boundary and 150 maximum HP', () => {
   assert.equal(randomMobileFromRoll(0, 0.5), 'aegis');
   assert.equal(randomMobileFromRoll(0.049999, 0.5), 'aegis');
   assert.equal(randomMobileFromRoll(0.05, 0), 'loom');
-  assert.equal(randomMobileFromRoll(0.99, 0.999), 'bramble');
+  assert.equal(randomMobileFromRoll(0.99, 0.999), 'cinder');
   const state = createState('RARE15', 'p1', 'Rare', 'aegis');
   state.players.push(makePlayer('p2', 'Other', 'loom'));
   assert.equal(state.players[0].hp, 150);
@@ -74,39 +74,56 @@ test('five percent is a valid firing power', () => {
   assert.equal(fireShot(state, 'p1', 45, 5, 1100).kind, 'damage');
 });
 
-test('terrain shot trades direct damage for a deeper crater on each Mobile', () => {
-  for (const mobile of ['loom', 'manta', 'borer', 'vesper', 'bramble', 'aegis'] as const) {
-    const initial = createState('TERRAN', 'p1', 'One', mobile);
-    initial.players.push(makePlayer('p2', 'Two', 'loom'));
-    startRound(initial, 18, 1000);
-    const standard = structuredClone(initial);
-    const digging = structuredClone(initial);
-    const hit = fireShot(standard, 'p1', 45, 50, 1100);
-    const dig = fireShot(digging, 'p1', 45, 50, 1100, false, 'terrain');
-    assert.equal(dig.mode, 'terrain');
-    assert.deepEqual(dig.paths, hit.paths);
-    assert.ok(dig.impacts[0].damage < hit.impacts[0].damage);
-    assert.ok(digging.terrain.reduce((sum, y, i) => sum + y - standard.terrain[i], 0) > 0);
-  }
+test('mixed equipment adds five points per piece to attack, defense, or HP', () => {
+  const initial = createState('GEAR55', 'p1', 'One', 'halo');
+  initial.players.push(makePlayer('p2', 'Two', 'cinder'));
+  initial.players[0].equipment = { hat: 'attack', armor: 'attack', boots: 'attack' };
+  initial.players[1].equipment = { hat: 'defense', armor: 'defense', boots: 'health' };
+  startRound(initial, 18, 1000);
+  assert.equal(equipmentBonus(initial.players[0], 'attack'), 15);
+  assert.equal(equipmentBonus(initial.players[1], 'defense'), 10);
+  assert.equal(maxHpFor(initial.players[1]), 105);
+  assert.equal(initial.players[1].hp, 105);
+  const probe = fireShot(structuredClone(initial), 'p1', 45, 45, 1100);
+  assert.ok(probe.impacts.length);
+  initial.players[1].x = probe.impacts[0].x;
+  initial.players[1].y = groundAt(initial.terrain, probe.impacts[0].x) - 13;
+  const unarmored = structuredClone(initial);
+  unarmored.players[1].equipment = { hat: null, armor: null, boots: null };
+  unarmored.players[1].hp = 100;
+  const base = structuredClone(unarmored);
+  base.players[0].equipment = { hat: null, armor: null, boots: null };
+  const boosted = fireShot(initial, 'p1', 45, 45, 1100);
+  const plain = fireShot(unarmored, 'p1', 45, 45, 1100);
+  const baseShot = fireShot(base, 'p1', 45, 45, 1100);
+  assert.equal(boosted.impacts[0].damage, baseShot.impacts[0].damage + 15);
+  assert.equal(boosted.impacts[0].damage, plain.impacts[0].damage);
+  assert.ok(105 - initial.players[1].hp < 100 - unarmored.players[1].hp);
 });
 
-test('round weather changes authoritative trajectories without changing wind rolls', () => {
-  assert.equal(weatherForRoll(0), 'clear');
-  assert.equal(weatherForRoll(0.5), 'gust');
-  assert.equal(weatherForRoll(0.75), 'low-gravity');
-  const initial = createState('WEATHR', 'p1', 'One', 'loom');
-  initial.players.push(makePlayer('p2', 'Two', 'borer'));
-  initial.weather = 'gust';
-  startRound(initial, 18, 1000);
-  assert.equal(initial.weather, 'gust');
-  const clear = structuredClone(initial); clear.weather = 'clear'; clear.wind = 6;
-  const gust = structuredClone(clear); gust.weather = 'gust';
-  const lowGravity = structuredClone(clear); lowGravity.weather = 'low-gravity';
-  const clearPath = fireShot(clear, 'p1', 45, 50, 1100).paths[0];
-  const gustPath = fireShot(gust, 'p1', 45, 50, 1100).paths[0];
-  const lowPath = fireShot(lowGravity, 'p1', 45, 50, 1100).paths[0];
-  assert.ok(gustPath[10].x > clearPath[10].x);
-  assert.ok(lowPath[10].y < clearPath[10].y);
+test('meteor chance is three percent per turn and direct hits deal 20 HP', () => {
+  const hits = Array.from({ length: 10000 }, (_, turn) => meteorOn(321, turn + 2)).filter(Boolean).length;
+  assert.ok(hits > 240 && hits < 360, `observed ${hits} / 10000`);
+  const state = createState('METEOR', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'borer'));
+  startRound(state, 18, 1000);
+  const x = state.players[1].x;
+  const oldGround = groundAt(state.terrain, x);
+  const meteor = dropMeteor(state, x);
+  assert.deepEqual(meteor.hitIds, ['p2']);
+  assert.equal(state.players[1].hp, 80);
+  assert.equal(meteor.y, oldGround);
+  assert.ok(groundAt(state.terrain, x) > oldGround);
+  assert.equal(METEOR_CRATER_RADIUS, 91);
+  const seeded = createState('METE02', 'p1', 'One', 'loom');
+  seeded.players.push(makePlayer('p2', 'Two', 'borer'));
+  const seed = Array.from({ length: 1000 }, (_, i) => i).find(candidate => meteorOn(candidate, 2));
+  assert.notEqual(seed, undefined);
+  startRound(seeded, seed!, 1000);
+  finishOrAdvance(seeded, 1100);
+  assert.equal(seeded.turn, 2);
+  assert.equal(seeded.meteor?.turn, 2);
+  assert.ok(seeded.meteor!.x >= 100 && seeded.meteor!.x <= 1180);
 });
 
 test('practice keeps the trainee active, restores target, and has no deadline', () => {
@@ -117,7 +134,7 @@ test('practice keeps the trainee active, restores target, and has no deadline', 
   assert.equal(state.deadline, 0);
   for (let turn = 1; turn <= 4; turn++) {
     state.players[1].hp = 1;
-    fireShot(state, 'p1', 45, 50, 1000 + turn * 1000, false, 'terrain');
+    fireShot(state, 'p1', 45, 50, 1000 + turn * 1000);
     assert.equal(state.phase, 'playing');
     assert.equal(state.activeId, 'p1');
     assert.equal(state.turn, turn + 1);
@@ -243,7 +260,7 @@ test('2v2 assigns teams, prevents friendly fire, and supports a same-room round 
 });
 
 test('each Mobile has a single-use special shot that resets next round', () => {
-  for (const mobile of ['loom', 'manta', 'borer', 'vesper', 'bramble'] as const) {
+  for (const mobile of ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder'] as const) {
     const state = createState('SKILL1', 'p1', 'One', mobile);
     state.players.push(makePlayer('p2', 'Two', 'loom'));
     startRound(state, 47, 1000);
@@ -252,7 +269,7 @@ test('each Mobile has a single-use special shot that resets next round', () => {
     assert.equal(state.players[0].specialAvailable, false);
     assert.equal(state.players[0].stats.shots, 1);
     assert.equal(state.players[0].stats.itemsUsed, 1);
-    if (mobile === 'manta') assert.equal(shot.paths.length, 3);
+    if (mobile === 'manta' || mobile === 'kestrel') assert.equal(shot.paths.length, 3);
     if (state.phase === 'playing') {
       fireShot(state, 'p2', 45, 45, 1200);
       assert.throws(() => fireShot(state, 'p1', 45, 45, 1300, true), /ใช้ไปแล้ว/);

@@ -7,17 +7,19 @@ export const MOVE_SPEED = 88;
 export const TURN_MOVE_LIMIT = 175;
 export const MIN_POWER = 5;
 
-export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'aegis';
+export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'halo' | 'kestrel' | 'cinder' | 'aegis';
 export type OrdinaryMobileKind = Exclude<MobileKind, 'aegis'>;
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport';
 export type DropKind = ItemKind | 'special';
 export type MatchMode = 'ffa' | 'teams' | 'practice';
-export type WeatherKind = 'clear' | 'gust' | 'low-gravity';
-export type ShotMode = 'standard' | 'terrain';
+export type EquipmentSlot = 'hat' | 'armor' | 'boots';
+export type EquipmentSet = 'attack' | 'defense' | 'health';
+export type Equipment = Record<EquipmentSlot, EquipmentSet | null>;
 export type Team = 0 | 1;
 export interface PlayerStats { shots: number; hits: number; damageDealt: number; damageTaken: number; itemsUsed: number; pickups: number; distanceMoved: number }
 export interface ItemDrop { id: string; item: DropKind; x: number; y: number; spawnedTurn: number }
+export interface MeteorEvent { turn: number; x: number; y: number; hitIds: string[] }
 
 export interface PlayerState {
   id: string;
@@ -35,6 +37,7 @@ export interface PlayerState {
   stats: PlayerStats;
   walkedThisTurn: number;
   randomUsed: boolean;
+  equipment: Equipment;
 }
 
 export interface GameState {
@@ -52,7 +55,7 @@ export interface GameState {
   winnerId: string | null;
   message: string;
   mode: MatchMode;
-  weather: WeatherKind;
+  meteor: MeteorEvent | null;
   winnerTeam: Team | null;
   rematchReady: string[];
   lobbyReady: string[];
@@ -61,7 +64,7 @@ export interface GameState {
 
 export interface Point { x: number; y: number }
 export interface Impact extends Point { radius: number; damage: number }
-export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; impacts: Impact[]; special?: boolean; mode?: ShotMode; hitIds?: string[] }
+export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[] }
 export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
 export type ClientAction =
@@ -69,6 +72,7 @@ export type ClientAction =
   | { type: 'practice'; name: string; mobile?: OrdinaryMobileKind }
   | { type: 'join'; code: string; name: string; mobile?: OrdinaryMobileKind }
   | { type: 'select'; mobile: OrdinaryMobileKind }
+  | { type: 'equip'; slot: EquipmentSlot; set: EquipmentSet | null }
   | { type: 'random-mobile' }
   | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
@@ -77,7 +81,7 @@ export type ClientAction =
   | { type: 'resume'; token: string }
   | { type: 'move'; direction: -1 | 0 | 1 }
   | { type: 'turn' }
-  | { type: 'fire'; angle: number; power: number; special?: boolean; mode?: ShotMode }
+  | { type: 'fire'; angle: number; power: number; special?: boolean }
   | { type: 'reset-practice' }
   | { type: 'item'; item: ItemKind; angle?: number; power?: number };
 
@@ -97,9 +101,18 @@ export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; dam
   borer: { label: 'Borer', color: 0xf5c35a, damage: 38, radius: 68, crater: 40, maxHp: 100 },
   vesper: { label: 'Vesper', color: 0xb897ef, damage: 29, radius: 49, crater: 19, maxHp: 100 },
   bramble: { label: 'Bramble', color: 0x9bcf83, damage: 27, radius: 55, crater: 18, maxHp: 100 },
+  halo: { label: 'Halo', color: 0x61d9ef, damage: 34, radius: 50, crater: 18, maxHp: 100 },
+  kestrel: { label: 'Kestrel', color: 0x68c6a7, damage: 20, radius: 40, crater: 16, maxHp: 100 },
+  cinder: { label: 'Cinder', color: 0xff9459, damage: 40, radius: 72, crater: 42, maxHp: 100 },
   aegis: { label: 'Aegis', color: 0x72d9f4, damage: 34, radius: 59, crater: 24, maxHp: 150 },
 };
-export const ORDINARY_MOBILES: OrdinaryMobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble'];
+export const ORDINARY_MOBILES: OrdinaryMobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder'];
+export const EQUIPMENT_SLOTS: EquipmentSlot[] = ['hat', 'armor', 'boots'];
+export const EQUIPMENT_SETS: EquipmentSet[] = ['attack', 'defense', 'health'];
+export function equipmentBonus(player: PlayerState, set: EquipmentSet): number {
+  return EQUIPMENT_SLOTS.filter(slot => player.equipment[slot] === set).length * 5;
+}
+export function maxHpFor(player: PlayerState): number { return MOBILE_INFO[player.mobile].maxHp + equipmentBonus(player, 'health'); }
 export function randomMobileFromRoll(rareRoll: number, ordinaryRoll: number): MobileKind {
   if (rareRoll < 0.05) return 'aegis';
   return ORDINARY_MOBILES[Math.min(ORDINARY_MOBILES.length - 1, Math.floor(ordinaryRoll * ORDINARY_MOBILES.length))];
@@ -110,14 +123,6 @@ export function dropKindForRoll(roll: number): DropKind {
   if (roll < 0.9) return 'teleport';
   return 'special';
 }
-export function weatherForRoll(roll: number): WeatherKind {
-  return roll < 0.5 ? 'clear' : roll < 0.75 ? 'gust' : 'low-gravity';
-}
-export const WEATHER_INFO: Record<WeatherKind, { label: string; detail: string }> = {
-  clear: { label: 'ฟ้าโปร่ง', detail: 'วิถีกระสุนปกติ' },
-  gust: { label: 'ลมแรง', detail: 'ลมมีผลต่อกระสุนมากขึ้น 50%' },
-  'low-gravity': { label: 'แรงโน้มถ่วงต่ำ', detail: 'กระสุนลอยได้นานและไกลขึ้น' },
-};
 function emptyStats(): PlayerStats { return { shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, itemsUsed: 0, pickups: 0, distanceMoved: 0 }; }
 
 export function random(seed: number): () => number {
@@ -164,14 +169,15 @@ export function createState(code: string, hostId: string, name: string, mobile: 
     code, phase: 'lobby', hostId,
     players: [makePlayer(hostId, name, mobile)], terrain: [], map: 'cloud-reef',
     seed: 0, wind: 0, turn: 0, activeId: null, deadline: 0, winnerId: null,
-    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', weather: 'clear', winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
+    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', meteor: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
   };
 }
 
 export function makePlayer(id: string, name: string, mobile: MobileKind): PlayerState {
   return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
     items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1,
-    team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false };
+    team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false,
+    equipment: { hat: null, armor: null, boots: null } };
 }
 
 export function startRound(state: GameState, seed: number, now: number): void {
@@ -186,7 +192,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   const slots: Record<number, number[]> = { 2: [210, 1070], 3: [180, 640, 1100], 4: [160, 470, 810, 1120] };
   state.players.forEach((player, index) => {
     player.x = slots[state.players.length][index];
-    player.hp = MOBILE_INFO[player.mobile].maxHp;
+    player.hp = maxHpFor(player);
     player.items = { double: 1, repair: 1, teleport: 1 };
     player.doubleArmed = false;
     player.facing = player.x > WIDTH / 2 ? -1 : 1;
@@ -206,6 +212,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.rematchReady = [];
   state.lobbyReady = [];
   state.drops = [];
+  state.meteor = null;
   state.message = `${state.players[0].name} กำลังเล็ง`;
 }
 
@@ -224,7 +231,7 @@ export function returnToLobby(state: GameState): void {
   state.rematchReady = [];
   state.lobbyReady = [];
   state.drops = [];
-  state.weather = 'clear';
+  state.meteor = null;
   state.message = 'เลือกรถแล้วกดพร้อมเพื่อเริ่มรอบใหม่';
 }
 
@@ -237,12 +244,47 @@ export function windChangesOn(seed: number, turn: number): boolean {
   return random(seed ^ Math.imul(turn, 0x3c6ef372))() < 0.2;
 }
 
+export const METEOR_CRATER_RADIUS = 91;
+export function meteorOn(seed: number, turn: number): boolean {
+  return random(seed ^ Math.imul(turn, 0x7f4a7c15))() < 0.03;
+}
+
+export function dropMeteor(state: GameState, x: number): MeteorEvent {
+  if (state.phase !== 'playing' || !Number.isFinite(x) || x < 70 || x > WIDTH - 70) throw new Error('จุดตกอุกกาบาตไม่ถูกต้อง');
+  const impact: MeteorEvent = { turn: state.turn, x, y: groundAt(state.terrain, x), hitIds: [] };
+  for (const player of state.players) {
+    if (player.hp <= 0 || Math.abs(player.x - x) > 36) continue;
+    const before = player.hp;
+    player.hp = Math.max(0, player.hp - 20);
+    player.stats.damageTaken += before - player.hp;
+    impact.hitIds.push(player.id);
+  }
+  crater(state.terrain, x, METEOR_CRATER_RADIUS, 65);
+  settlePlayers(state);
+  for (const drop of state.drops) drop.y = groundAt(state.terrain, drop.x) - 24;
+  state.meteor = impact;
+  return impact;
+}
+
+function finishIfDecided(state: GameState): boolean {
+  const alive = state.players.filter(p => p.hp > 0);
+  const livingTeams = new Set(alive.map(player => player.team));
+  if (!(state.mode === 'teams' ? livingTeams.size <= 1 : alive.length <= 1)) return false;
+  state.phase = 'finished';
+  state.activeId = null;
+  state.deadline = 0;
+  state.winnerTeam = state.mode === 'teams' ? alive[0]?.team ?? null : null;
+  state.winnerId = state.mode === 'ffa' ? alive[0]?.id ?? null : null;
+  state.message = alive.length ? state.mode === 'teams' ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : `${alive[0].name} ชนะ!` : 'เสมอ!';
+  return true;
+}
+
 export function finishOrAdvance(state: GameState, now: number): void {
   if (state.mode === 'practice') {
     const trainee = state.players.find(player => player.id === state.hostId)!;
     const target = state.players.find(player => player.id !== state.hostId)!;
-    trainee.hp = MOBILE_INFO[trainee.mobile].maxHp;
-    target.hp = MOBILE_INFO[target.mobile].maxHp;
+    trainee.hp = maxHpFor(trainee);
+    target.hp = maxHpFor(target);
     target.x = 1070;
     target.y = groundAt(state.terrain, target.x) - 13;
     trainee.items = { double: 1, repair: 1, teleport: 1 };
@@ -258,18 +300,19 @@ export function finishOrAdvance(state: GameState, now: number): void {
     state.message = 'โหมดฝึก · ยิงเป้าได้ต่อเนื่อง';
     return;
   }
-  const alive = state.players.filter(p => p.hp > 0);
-  const livingTeams = new Set(alive.map(player => player.team));
-  if (state.mode === 'teams' ? livingTeams.size <= 1 : alive.length <= 1) {
-    state.phase = 'finished';
-    state.activeId = null;
-    state.deadline = 0;
-    state.winnerTeam = state.mode === 'teams' ? alive[0]?.team ?? null : null;
-    state.winnerId = state.mode === 'ffa' ? alive[0]?.id ?? null : null;
-    state.message = alive.length ? state.mode === 'teams' ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : `${alive[0].name} ชนะ!` : 'เสมอ!';
-    return;
-  }
+  if (finishIfDecided(state)) return;
   const oldIndex = state.players.findIndex(p => p.id === state.activeId);
+  state.turn++;
+  state.meteor = null;
+  if (windChangesOn(state.seed, state.turn)) {
+    const nextWind = windFor(state.seed, state.turn);
+    state.wind = nextWind === state.wind ? (nextWind === 8 ? 7 : nextWind + 1) : nextWind;
+  }
+  if (meteorOn(state.seed, state.turn)) {
+    const x = 100 + random(state.seed ^ Math.imul(state.turn, 0x4cf5ad43))() * (WIDTH - 200);
+    dropMeteor(state, Math.round(x));
+  }
+  if (finishIfDecided(state)) return;
   let nextId: string | null = null;
   for (let offset = 1; offset <= state.players.length; offset++) {
     const candidate = state.players[(oldIndex + offset) % state.players.length];
@@ -280,14 +323,9 @@ export function finishOrAdvance(state: GameState, now: number): void {
   }
   state.activeId = nextId;
   if (!nextId) { state.deadline = 0; state.message = 'รอผู้เล่นกลับเข้าห้อง'; return; }
-  state.turn++;
-  if (windChangesOn(state.seed, state.turn)) {
-    const nextWind = windFor(state.seed, state.turn);
-    state.wind = nextWind === state.wind ? (nextWind === 8 ? 7 : nextWind + 1) : nextWind;
-  }
   state.players.find(player => player.id === nextId)!.walkedThisTurn = 0;
   state.deadline = now + TURN_MS;
-  state.message = `${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง`;
+  state.message = state.meteor ? `อุกกาบาตตก! ${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง` : `${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง`;
   if (state.turn % 8 === 0) spawnItemDrop(state);
 }
 
@@ -373,8 +411,6 @@ function shotOrigin(state: GameState, player: PlayerState, radians: number): Poi
   };
 }
 
-function gravity(state: GameState): number { return state.weather === 'low-gravity' ? 330 : 440; }
-function windStrength(state: GameState): number { return state.weather === 'gust' ? 19.5 : 13; }
 
 function trace(state: GameState, player: PlayerState, angle: number, power: number, offset: number, windFactor = 1): { path: Point[]; hit: Point | null } {
   const radians = (angle + offset) * Math.PI / 180;
@@ -387,8 +423,8 @@ function trace(state: GameState, player: PlayerState, angle: number, power: numb
   const path: Point[] = [{ x, y }];
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += state.wind * windStrength(state) * windFactor * dt;
-    vy += gravity(state) * dt;
+    vx += state.wind * 13 * windFactor * dt;
+    vy += 440 * dt;
     x += vx * dt;
     y += vy * dt;
     if (i % 3 === 0) path.push({ x, y });
@@ -413,8 +449,8 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
   const trunk: Point[] = [{ x, y }];
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += state.wind * windStrength(state) * dt;
-    vy += gravity(state) * dt;
+    vx += state.wind * 13 * dt;
+    vy += 440 * dt;
     x += vx * dt; y += vy * dt;
     if (i % 3 === 0) trunk.push({ x, y });
     if (x < 0 || x > WIDTH || y > HEIGHT) return [{ path: trunk, hit: null }];
@@ -428,8 +464,8 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
       let childX = x, childY = y, childVx = vx + side * 95 * direction, childVy = -100;
       const path = [...trunk, { x, y }];
       for (let frame = 0; frame < 600; frame++) {
-        childVx += state.wind * windStrength(state) * dt;
-        childVy += gravity(state) * dt;
+        childVx += state.wind * 13 * dt;
+        childVy += 440 * dt;
         childX += childVx * dt; childY += childVy * dt;
         if (frame % 3 === 0) path.push({ x: childX, y: childY });
         if (childX < 0 || childX > WIDTH || childY > HEIGHT) return { path, hit: null };
@@ -445,41 +481,34 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
   return [{ path: trunk, hit: null }];
 }
 
-export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false, mode: ShotMode = 'standard'): ShotResult {
+export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false): ShotResult {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
   if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < MIN_POWER || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
-  if (mode !== 'standard' && mode !== 'terrain') throw new Error('ชนิดกระสุนไม่ถูกต้อง');
-  if (special && mode === 'terrain') throw new Error('ท่าพิเศษใช้ร่วมกับกระสุนขุดพื้นไม่ได้');
   const player = state.players.find(p => p.id === playerId)!;
   if (special && !player.specialAvailable) throw new Error('ท่าพิเศษใช้ไปแล้ว');
   const info = MOBILE_INFO[player.mobile];
-  const result: ShotResult = { kind: 'damage', paths: [], impacts: [], special, mode, hitIds: [] };
+  const result: ShotResult = { kind: 'damage', paths: [], impacts: [], special, hitIds: [] };
   const heading = worldAngle(state, player, angle);
-  const windFactor = player.mobile === 'vesper' ? special ? 0 : 0.45 : 1;
-  const shots = player.mobile === 'manta' ? traceManta(state, player, heading, power, special) : [trace(state, player, heading, power, 0, windFactor)];
+  const windFactor = player.mobile === 'vesper' || player.mobile === 'halo' ? special ? 0 : 0.45 : 1;
+  const shots = player.mobile === 'manta' || player.mobile === 'kestrel' ? traceManta(state, player, heading, power, special) : [trace(state, player, heading, power, 0, windFactor)];
   const specialBlast: Record<MobileKind, { damage: number; radius: number; crater: number }> = {
     loom: { damage: 52, radius: 38, crater: 16 },
     manta: { damage: 20, radius: 37, crater: 14 },
     borer: { damage: 50, radius: 88, crater: 54 },
     vesper: { damage: 44, radius: 42, crater: 12 },
     bramble: { damage: 34, radius: 58, crater: 12 },
+    halo: { damage: 48, radius: 44, crater: 16 },
+    kestrel: { damage: 21, radius: 39, crater: 15 },
+    cinder: { damage: 54, radius: 82, crater: 52 },
     aegis: { damage: 46, radius: 66, crater: 28 },
   };
-  const terrainBlast: Record<MobileKind, { damage: number; radius: number; crater: number }> = {
-    loom: { damage: 9, radius: 72, crater: 43 },
-    manta: { damage: 6, radius: 53, crater: 32 },
-    borer: { damage: 11, radius: 91, crater: 65 },
-    vesper: { damage: 8, radius: 65, crater: 39 },
-    bramble: { damage: 8, radius: 70, crater: 36 },
-    aegis: { damage: 10, radius: 76, crater: 43 },
-  };
-  const blast = special ? specialBlast[player.mobile] : mode === 'terrain' ? terrainBlast[player.mobile] : info;
+  const blast = special ? specialBlast[player.mobile] : info;
   const hitIds = new Set<string>();
   for (const shot of shots) {
     result.paths.push(shot.path);
     if (!shot.hit) continue;
     const multiplier = player.doubleArmed ? 2 : 1;
-    const impact = { ...shot.hit, radius: blast.radius, damage: blast.damage * multiplier };
+    const impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + equipmentBonus(player, 'attack')) * multiplier };
     result.impacts.push(impact);
     for (const target of state.players) {
       if (target.hp <= 0) continue;
@@ -488,7 +517,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
       if (distance < impact.radius + 14) {
         const falloff = Math.max(0.35, 1 - distance / (impact.radius + 14));
         const before = target.hp;
-        target.hp = Math.max(0, target.hp - Math.round(impact.damage * falloff));
+        target.hp = Math.max(0, target.hp - Math.max(0, Math.round(impact.damage * falloff) - equipmentBonus(target, 'defense')));
         const dealt = before - target.hp;
         if (dealt > 0) {
           target.stats.damageTaken += dealt;
@@ -503,7 +532,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
   player.stats.shots++;
   if (hitIds.size) player.stats.hits++;
   result.hitIds = [...hitIds];
-  if (special && player.mobile === 'bramble' && player.hp > 0) player.hp = Math.min(MOBILE_INFO[player.mobile].maxHp, player.hp + 22);
+  if (special && player.mobile === 'bramble' && player.hp > 0) player.hp = Math.min(maxHpFor(player), player.hp + 22);
   if (special) { player.specialAvailable = false; player.stats.itemsUsed++; }
   player.doubleArmed = false;
   finishOrAdvance(state, now);
@@ -540,7 +569,7 @@ export function useItem(state: GameState, playerId: string, item: ItemKind, now:
     return;
   }
   if (item === 'repair') {
-    player.hp = Math.min(MOBILE_INFO[player.mobile].maxHp, player.hp + 28);
+    player.hp = Math.min(maxHpFor(player), player.hp + 28);
     player.items.repair--;
     player.stats.itemsUsed++;
     finishOrAdvance(state, now);

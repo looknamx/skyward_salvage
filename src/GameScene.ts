@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
 import { groundAt, HEIGHT, random, STEP, vehicleTilt, WIDTH } from '../shared/game.ts';
-import type { GameState, MobileKind, ShotResult } from '../shared/game.ts';
+import type { EquipmentSlot, GameState, MeteorEvent, MobileKind, ShotResult } from '../shared/game.ts';
 
 const backgrounds = {
   'cloud-reef': '/assets/environment/cloud-reef.png',
   'clockwork-orchard': '/assets/environment/clockwork-orchard.png',
   'glass-dunes': '/assets/environment/glass-dunes.png',
 };
-const kinds: MobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'aegis'];
+const kinds: MobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder', 'aegis'];
+const gearSlots: EquipmentSlot[] = ['hat', 'armor', 'boots'];
 const surfaceColors = {
   'cloud-reef': { shadow: '#173c50', rim: '#7dc8c6', grass: '#f1eee0', flower: '#ef8d78', water: '#a4e8ed' },
   'clockwork-orchard': { shadow: '#493645', rim: '#cc9c67', grass: '#f6dfad', flower: '#f3a36c', water: '#b5e4ed' },
@@ -29,9 +30,11 @@ export class GameScene extends Phaser.Scene {
   private terrainKey = '';
   private effects!: Phaser.GameObjects.Graphics;
   private mobiles = new Map<string, Phaser.GameObjects.Image>();
+  private gear = new Map<string, Partial<Record<EquipmentSlot, Phaser.GameObjects.Image>>>();
   private labels = new Map<string, Phaser.GameObjects.Text>();
   private drops = new Map<string, { image: Phaser.GameObjects.Image; started: number }>();
   private effect: { data: ShotResult; started: number } | null = null;
+  private meteorEffect: { data: MeteorEvent; started: number } | null = null;
 
   constructor() { super('battle'); }
 
@@ -41,6 +44,7 @@ export class GameScene extends Phaser.Scene {
       this.load.image(`${key}-rock`, `/assets/terrain/${key}-rock.png`);
     }
     for (const kind of kinds) this.load.image(`mobile-${kind}`, `/assets/characters/${kind}.png`);
+    for (const set of ['attack', 'defense', 'health']) for (const slot of gearSlots) this.load.image(`gear-${set}-${slot}`, `/assets/equipment/${set}-${slot}.png`);
     for (const item of ['double', 'repair', 'teleport', 'special']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
   }
 
@@ -65,22 +69,27 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applyState(state: GameState): void {
+    const previousMeteorTurn = this.state?.meteor?.turn;
     this.state = state;
     if (!this.backdrop) return;
     if (state.phase === 'lobby') {
       this.effect = null;
+      this.meteorEffect = null;
       this.pendingState = null;
       this.terrainImage.setVisible(false);
       for (const image of this.mobiles.values()) image.destroy();
+      for (const pieces of this.gear.values()) for (const image of Object.values(pieces)) image?.destroy();
       for (const label of this.labels.values()) label.destroy();
       for (const entry of this.drops.values()) { this.tweens.killTweensOf(entry.image); entry.image.destroy(); }
       this.mobiles.clear();
+      this.gear.clear();
       this.labels.clear();
       this.drops.clear();
       this.terrainKey = '';
       return;
     }
     this.terrainImage.setVisible(true);
+    if (state.meteor && state.meteor.turn !== previousMeteorTurn) this.meteorEffect = { data: state.meteor, started: this.time.now };
     if (this.backdrop.texture.key !== state.map) this.backdrop.setTexture(state.map);
     const key = `${state.seed}:${state.map}:${state.terrain.join(',')}`;
     if (state.terrain.length && key !== this.terrainKey) {
@@ -105,6 +114,7 @@ export class GameScene extends Phaser.Scene {
     this.renderMobiles();
     this.renderDrops();
     this.renderShot();
+    this.renderMeteor();
   }
 
   private renderDrops(): void {
@@ -222,7 +232,11 @@ export class GameScene extends Phaser.Scene {
     const state = this.state!;
     const living = new Set(state.players.filter(p => p.hp > 0).map(p => p.id));
     for (const [id, image] of this.mobiles) {
-      if (!living.has(id)) { image.destroy(); this.mobiles.delete(id); this.labels.get(id)?.destroy(); this.labels.delete(id); }
+      if (!living.has(id)) {
+        image.destroy(); this.mobiles.delete(id); this.labels.get(id)?.destroy(); this.labels.delete(id);
+        for (const piece of Object.values(this.gear.get(id) ?? {})) piece?.destroy();
+        this.gear.delete(id);
+      }
     }
     for (const player of state.players) {
       if (player.hp <= 0) continue;
@@ -246,6 +260,23 @@ export class GameScene extends Phaser.Scene {
       image.setFlipX(player.facing < 0);
       const tilt = vehicleTilt(state.terrain, player.x);
       image.rotation = jump ? tilt : Phaser.Math.Linear(image.rotation, tilt, .38);
+      const pieces = this.gear.get(player.id) ?? {};
+      this.gear.set(player.id, pieces);
+      for (const slot of gearSlots) {
+        const set = player.equipment[slot];
+        if (!set) { pieces[slot]?.destroy(); delete pieces[slot]; continue; }
+        const key = `gear-${set}-${slot}`;
+        let piece = pieces[slot];
+        if (!piece) {
+          piece = this.add.image(0, 0, key).setDepth(slot === 'hat' ? 12 : 11);
+          pieces[slot] = piece;
+        }
+        if (piece.texture.key !== key) piece.setTexture(key);
+        const placement = slot === 'hat' ? { x: -7, y: -33, w: 39, h: 39 } : slot === 'armor' ? { x: 0, y: 5, w: 59, h: 42 } : { x: 0, y: 36, w: 66, h: 31 };
+        const offsetX = placement.x * player.facing;
+        piece.setPosition(image.x + offsetX * Math.cos(image.rotation) - placement.y * Math.sin(image.rotation), image.y + offsetX * Math.sin(image.rotation) + placement.y * Math.cos(image.rotation));
+        piece.setDisplaySize(placement.w, placement.h).setRotation(image.rotation).setFlipX(player.facing < 0);
+      }
       if (label) {
         label.setText(player.name);
         label.setPosition(image.x, image.y - 53);
@@ -282,6 +313,27 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(4 * (1 - expansion), teleport ? 0xb887ff : special ? 0x76f5dc : 0xffe0a0, 1 - expansion);
         g.strokeCircle(impact.x, impact.y, impact.radius * expansion);
       }
+    }
+  }
+
+  private renderMeteor(): void {
+    if (!this.meteorEffect) return;
+    const elapsed = this.time.now - this.meteorEffect.started;
+    if (elapsed > 1150) { this.meteorEffect = null; return; }
+    const { x, y } = this.meteorEffect.data;
+    if (elapsed < 650) {
+      const progress = elapsed / 650;
+      const ballY = -70 + (y + 70) * progress * progress;
+      this.effects.lineStyle(7, 0xff8b48, .8);
+      this.effects.lineBetween(x - 50, ballY - 80, x, ballY);
+      this.effects.fillStyle(0xffd786, 1); this.effects.fillCircle(x, ballY, 12);
+      this.effects.fillStyle(0xff6b3f, .9); this.effects.fillCircle(x, ballY, 7);
+    } else {
+      const progress = (elapsed - 650) / 500;
+      this.effects.lineStyle(5 * (1 - progress), 0xffaf66, 1 - progress);
+      this.effects.strokeCircle(x, y, 91 * progress);
+      this.effects.fillStyle(0xffd28b, .35 * (1 - progress));
+      this.effects.fillCircle(x, y, 27 + 26 * progress);
     }
   }
 }

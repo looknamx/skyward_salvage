@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, MOBILE_INFO, movePlayer, randomMobileFromRoll, resetPractice, returnToLobby, startRound, turnPlayer, useItem, weatherForRoll } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, movePlayer, ORDINARY_MOBILES, randomMobileFromRoll, resetPractice, returnToLobby, startRound, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -70,7 +70,6 @@ function tryRematch(state: GameState): void {
   if (!connected.some(player => player.id === state.hostId)) state.hostId = connected[0].id;
   summarySent.delete(state.code);
   returnToLobby(state);
-  state.weather = weatherForRoll(randomBytes(4).readUInt32LE(0) / 4294967296);
 }
 function resumePlayer(ws: WebSocket, token: string): void {
   const session = sessions.get(token);
@@ -125,8 +124,8 @@ function cleanName(value: unknown): string {
   return name;
 }
 function mobile(value: unknown): OrdinaryMobileKind {
-  if (value !== 'loom' && value !== 'manta' && value !== 'borer' && value !== 'vesper' && value !== 'bramble') throw new Error('Mobile ไม่ถูกต้อง');
-  return value;
+  if (!ORDINARY_MOBILES.includes(value as OrdinaryMobileKind)) throw new Error('Mobile ไม่ถูกต้อง');
+  return value as OrdinaryMobileKind;
 }
 function roomCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -150,7 +149,6 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     const id = randomBytes(12).toString('hex');
     const code = roomCode();
     const state = createState(code, id, cleanName(action.name), mobile(action.mobile ?? 'loom'));
-    state.weather = weatherForRoll(randomBytes(4).readUInt32LE(0) / 4294967296);
     rooms.set(code, state);
     welcome(ws, makeSession(id, code), false);
     stateBroadcast(state);
@@ -162,7 +160,6 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     const code = roomCode();
     const state = createState(code, id, cleanName(action.name), mobile(action.mobile ?? 'loom'));
     state.mode = 'practice';
-    state.weather = weatherForRoll(randomBytes(4).readUInt32LE(0) / 4294967296);
     state.players.push(makePlayer(`target-${code}`, 'หุ่นฝึก', 'borer'));
     startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
     state.message = 'โหมดฝึก · ยิงเป้าได้ต่อเนื่อง';
@@ -194,7 +191,13 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยน Mobile');
     if (player.randomUsed) throw new Error('สุ่ม Mobile แล้ว ไม่สามารถเปลี่ยนคันได้');
     player.mobile = mobile(action.mobile);
-    player.hp = MOBILE_INFO[player.mobile].maxHp;
+    player.hp = maxHpFor(player);
+  } else if (action.type === 'equip') {
+    if (state.phase !== 'lobby') throw new Error('เปลี่ยนของสวมใส่ได้ในห้องเตรียมเกมเท่านั้น');
+    if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยนของสวมใส่');
+    if (!EQUIPMENT_SLOTS.includes(action.slot) || (action.set !== null && !EQUIPMENT_SETS.includes(action.set))) throw new Error('ของสวมใส่ไม่ถูกต้อง');
+    player.equipment[action.slot] = action.set;
+    player.hp = maxHpFor(player);
   } else if (action.type === 'random-mobile') {
     if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนสุ่ม Mobile');
@@ -217,7 +220,7 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     for (const entrant of state.players.filter(candidate => candidate.randomUsed)) {
       const rolls = randomBytes(8);
       entrant.mobile = randomMobileFromRoll(rolls.readUInt32LE(0) / 4294967296, rolls.readUInt32LE(4) / 4294967296);
-      entrant.hp = MOBILE_INFO[entrant.mobile].maxHp;
+      entrant.hp = maxHpFor(entrant);
     }
     summarySent.delete(state.code);
   } else if (action.type === 'reset-practice') {
@@ -247,7 +250,7 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     movement.delete(state.code);
     const hpBefore = new Map(state.players.map(target => [target.id, target.hp]));
     if (action.special !== undefined && typeof action.special !== 'boolean') throw new Error('ชนิดกระสุนไม่ถูกต้อง');
-    const shot = fireShot(state, current.id, Number(action.angle), Number(action.power), Date.now(), action.special === true, action.mode ?? 'standard');
+    const shot = fireShot(state, current.id, Number(action.angle), Number(action.power), Date.now(), action.special === true);
     if (action.special === true) broadcast(state.code, { type: 'item-used', item: 'special' });
     broadcast(state.code, { type: 'shot', shot });
     if (shot.hitIds?.length || state.players.some(target => target.hp < (hpBefore.get(target.id) ?? target.hp))) broadcast(state.code, { type: 'hit' });

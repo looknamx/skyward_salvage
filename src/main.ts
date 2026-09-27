@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GameScene } from './GameScene.ts';
-import { MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT, WEATHER_INFO } from '../shared/game.ts';
-import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent, ShotMode } from '../shared/game.ts';
+import { equipmentBonus, maxHpFor, MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT } from '../shared/game.ts';
+import type { ClientAction, EquipmentSet, EquipmentSlot, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -19,7 +19,6 @@ let playerId = '';
 let gameState: GameState | null = null;
 let teleportMode = false;
 let specialMode = false;
-let shotMode: ShotMode = 'standard';
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
 const keysDown = new Set<string>();
@@ -110,6 +109,13 @@ function pickMobile(kind: OrdinaryMobileKind): void {
   if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId) && !gameState.players.find(player => player.id === playerId)?.randomUsed) send({ type: 'select', mobile: kind });
 }
 document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => button.addEventListener('click', () => pickMobile(button.dataset.mobile as OrdinaryMobileKind)));
+document.querySelectorAll<HTMLButtonElement>('.equipment-row button').forEach(button => button.addEventListener('click', () => {
+  const me = gameState?.players.find(player => player.id === playerId);
+  if (gameState?.phase !== 'lobby' || !me || gameState.lobbyReady.includes(playerId)) return;
+  const slot = button.closest<HTMLElement>('.equipment-row')?.dataset.slot as EquipmentSlot;
+  const set = button.dataset.set === 'none' ? null : button.dataset.set as EquipmentSet;
+  send({ type: 'equip', slot, set });
+}));
 $('random-mobile').addEventListener('click', () => {
   const me = gameState?.players.find(player => player.id === playerId);
   if (gameState?.phase === 'lobby' && me && !me.randomUsed && !gameState.lobbyReady.includes(playerId)) send({ type: 'random-mobile' });
@@ -185,7 +191,7 @@ function setPower(value: number): void {
 function fireChargedShot(): void {
   const angle = Number(angleInput.value), power = Math.round(powerMeter.value);
   if (teleportMode) send({ type: 'item', item: 'teleport', angle, power });
-  else send({ type: 'fire', angle, power, special: specialMode, mode: shotMode });
+  else send({ type: 'fire', angle, power, special: specialMode });
 }
 function chargePower(): void {
   if (chargeStartedAt === null) return;
@@ -234,19 +240,10 @@ $('item-repair').addEventListener('click', () => send({ type: 'item', item: 'rep
 $('item-teleport').addEventListener('click', () => { setTeleportMode(!teleportMode); if (teleportMode) toast('เล็งมุม กดยิงค้างเพื่อเพิ่มพลัง แล้วปล่อยเพื่อย้าย'); });
 $('item-special').addEventListener('click', () => { if (canControl()) setSpecialMode(!specialMode); });
 function updateFireLabel(): void {
-  $('fire').textContent = teleportMode ? 'WARP' : specialMode ? 'SKILL' : shotMode === 'terrain' ? 'DIG' : 'FIRE';
-  $('shot-mode').textContent = shotMode === 'terrain' ? 'กระสุน: ขุดพื้น' : 'กระสุน: โจมตี';
-  $('shot-mode').classList.toggle('selected', shotMode === 'terrain');
+  $('fire').textContent = teleportMode ? 'WARP' : specialMode ? 'SKILL' : 'FIRE';
 }
-function setShotMode(value: ShotMode): void {
-  if (value === 'terrain') { setTeleportMode(false); setSpecialMode(false); }
-  shotMode = value;
-  updateFireLabel();
-}
-$('shot-mode').addEventListener('click', () => { if (canControl()) setShotMode(shotMode === 'standard' ? 'terrain' : 'standard'); });
 function setTeleportMode(value: boolean): void {
   if (value) setSpecialMode(false);
-  if (value) shotMode = 'standard';
   teleportMode = value;
   $('item-teleport').classList.toggle('selected', value);
   $('fire').classList.toggle('warp-armed', value);
@@ -254,7 +251,6 @@ function setTeleportMode(value: boolean): void {
 }
 function setSpecialMode(value: boolean): void {
   if (value) setTeleportMode(false);
-  if (value) shotMode = 'standard';
   specialMode = value;
   $('item-special').classList.toggle('selected', value);
   $('fire').classList.toggle('special-armed', value);
@@ -385,9 +381,6 @@ window.addEventListener('keydown', event => {
   } else if (event.code === 'KeyR') {
     if (!event.repeat) { releaseMovement(); send({ type: 'turn' }); }
     event.preventDefault();
-  } else if (event.code === 'KeyQ') {
-    if (!event.repeat) setShotMode(shotMode === 'standard' ? 'terrain' : 'standard');
-    event.preventDefault();
   } else if (event.code === 'Space') { if (!event.repeat) beginCharge(); event.preventDefault(); }
 });
 window.addEventListener('keyup', event => {
@@ -409,6 +402,10 @@ function render(state: GameState): void {
   if (previous?.phase === 'playing') {
     const newDrop = state.drops.find(drop => !previous.drops.some(old => old.id === drop.id));
     if (newDrop) { playEffect(dropSound); toast('ไอเทมตกลงมาจากฟ้า! เดินไปเก็บเมื่อช่องว่าง'); }
+    if (state.meteor && state.meteor.turn !== previous.meteor?.turn) {
+      toast(state.meteor.hitIds.length ? 'อุกกาบาตตก! มี Mobile โดนโจมตี 20 HP' : 'อุกกาบาตตก! พื้นสนามถูกทำลาย');
+      if (state.meteor.hitIds.length) playEffect(hitSound);
+    }
     if (state.turn !== previous.turn && state.wind !== previous.wind) playEffect(windSound);
     const previousMe = previous.players.find(player => player.id === playerId);
     const currentMe = state.players.find(player => player.id === playerId);
@@ -420,7 +417,6 @@ function render(state: GameState): void {
     const me = state.players.find(player => player.id === playerId);
     if (me?.randomUsed) toast(`สุ่มได้ ${MOBILE_INFO[me.mobile].label}!`);
   }
-  if (previous?.phase !== 'playing' && state.phase === 'playing') toast(`สภาพอากาศ: ${WEATHER_INFO[state.weather].label} · ${WEATHER_INFO[state.weather].detail}`);
   scene.setSnapshot(state, playerId);
   $('landing').classList.add('hidden');
   $('lobby').classList.toggle('hidden', state.phase !== 'lobby');
@@ -431,7 +427,6 @@ function render(state: GameState): void {
     const modeSelect = $('match-mode') as HTMLSelectElement;
     modeSelect.value = state.mode;
     modeSelect.disabled = state.hostId !== playerId;
-    $('lobby-weather').textContent = `สภาพอากาศรอบนี้: ${WEATHER_INFO[state.weather].label} · ${WEATHER_INFO[state.weather].detail}`;
     const me = state.players.find(player => player.id === playerId);
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
@@ -441,14 +436,28 @@ function render(state: GameState): void {
     });
     ($('random-mobile') as HTMLButtonElement).disabled = isReady || !me?.connected || !!me.randomUsed;
     $('random-mobile').textContent = me?.randomUsed ? '🎲 สุ่มแล้ว' : '🎲 สุ่ม Mobile';
+    document.querySelectorAll<HTMLButtonElement>('.equipment-row button').forEach(button => {
+      const slot = button.closest<HTMLElement>('.equipment-row')?.dataset.slot as EquipmentSlot;
+      const set = button.dataset.set === 'none' ? null : button.dataset.set as EquipmentSet;
+      button.classList.toggle('selected', !!me && me.equipment[slot] === set);
+      button.disabled = isReady || !me?.connected;
+    });
+    $('equipment-stats').textContent = me ? `โจมตี +${equipmentBonus(me, 'attack')} · ป้องกัน +${equipmentBonus(me, 'defense')} · เลือด +${equipmentBonus(me, 'health')}` : '';
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
       const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
       const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? '🎲 รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
+      const gear = document.createElement('span'); gear.className = 'lobby-player-gear';
+      for (const slot of ['hat', 'armor', 'boots'] as const) {
+        const set = player.equipment[slot];
+        if (!set) continue;
+        const icon = document.createElement('img'); icon.src = `/assets/equipment/${set}-${slot}.png`; icon.alt = `${slot} ${set}`;
+        gear.append(icon);
+      }
       const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
       ready.textContent = player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
-      element.append(name, mobile, ready);
+      element.append(name, mobile, gear, ready);
       return element;
     }));
     $('start').classList.toggle('hidden', !isHost);
@@ -465,19 +474,26 @@ function render(state: GameState): void {
     card.style.setProperty('--player-color', `#${MOBILE_INFO[player.mobile].color.toString(16).padStart(6, '0')}`);
     const portrait = document.createElement('img'); portrait.className = 'player-portrait';
     portrait.src = `/assets/characters/${player.mobile}.png`; portrait.alt = MOBILE_INFO[player.mobile].label;
+    const portraitWrap = document.createElement('div'); portraitWrap.className = 'player-portrait-wrap'; portraitWrap.append(portrait);
+    for (const slot of ['hat', 'armor', 'boots'] as const) {
+      const set = player.equipment[slot];
+      if (!set) continue;
+      const gear = document.createElement('img'); gear.className = `player-gear player-gear-${slot}`;
+      gear.src = `/assets/equipment/${set}-${slot}.png`; gear.alt = '';
+      portraitWrap.append(gear);
+    }
     const info = document.createElement('div'); info.className = 'player-info';
     const head = document.createElement('div'); head.className = 'player-head';
     const name = document.createElement('b'); name.textContent = player.name + (state.mode === 'teams' ? ` · ${player.team === 0 ? 'A' : 'B'}` : '');
-    const maxHp = MOBILE_INFO[player.mobile].maxHp;
+    const maxHp = maxHpFor(player);
     const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/${maxHp}`;
     head.append(name, meta);
     const track = document.createElement('div'); track.className = 'hp-track';
     const fill = document.createElement('div'); fill.className = 'hp-fill'; fill.style.width = `${100 * player.hp / maxHp}%`;
-    track.append(fill); info.append(head, track); card.append(portrait, info);
+    track.append(fill); info.append(head, track); card.append(portraitWrap, info);
     return card;
   }));
   $('wind').textContent = `WIND ${state.wind < 0 ? '←' : '→'} ${Math.abs(state.wind)}`;
-  $('weather-badge').textContent = state.mode === 'practice' ? `ฝึกยิง · ${WEATHER_INFO[state.weather].label}` : WEATHER_INFO[state.weather].label;
   $('practice-options').classList.toggle('hidden', state.mode !== 'practice');
   $('turn').textContent = `TURN ${String(state.turn).padStart(2, '0')}`;
   $('turn-banner').textContent = state.activeId === playerId ? 'เทิร์นของคุณ • เล็งแล้ว FIRE' : state.message;
@@ -492,7 +508,7 @@ function render(state: GameState): void {
     setPower(MIN_POWER);
     updateAim();
   }
-  for (const id of ['angle', 'fire', 'shot-mode']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
+  for (const id of ['angle', 'fire']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
   ($('item-special') as HTMLButtonElement).disabled = !canAct || !me?.specialAvailable;
   $('count-special').textContent = me?.specialAvailable ? '1' : '0';
   document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => { button.disabled = !canAct; });

@@ -75,16 +75,18 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         await host.waitFor(e => e.type === 'state' && e.state.mode === 'teams');
       }
       host.send({ type: 'select', mobile: 'bramble' });
-      clients[1].send({ type: 'select', mobile: 'vesper' });
-      await host.waitFor(e => e.type === 'state' && e.state.players[0]?.mobile === 'bramble' && e.state.players[1]?.mobile === 'vesper');
+      clients[1].send({ type: 'select', mobile: 'cinder' });
+      await host.waitFor(e => e.type === 'state' && e.state.players[0]?.mobile === 'bramble' && e.state.players[1]?.mobile === 'cinder');
+      clients[1].send({ type: 'equip', slot: 'hat', set: 'health' });
+      clients[1].send({ type: 'equip', slot: 'armor', set: 'defense' });
+      clients[1].send({ type: 'equip', slot: 'boots', set: 'attack' });
+      await host.waitFor(e => e.type === 'state' && e.state.players[1]?.equipment.boots === 'attack');
       if (count === 2) {
         host.send({ type: 'start' });
         await host.waitFor(e => e.type === 'error' && /กดพร้อม/.test(e.message));
       }
       for (let i = 1; i < count; i++) clients[i].send({ type: 'lobby-ready', ready: true });
-      const readyState = await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
-      assert.equal(readyState.type, 'state');
-      const awaitedWeather = readyState.state.weather;
+      await host.waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
       if (count === 2) {
         clients[1].send({ type: 'select', mobile: 'manta' });
         await clients[1].waitFor(e => e.type === 'error' && /ยกเลิกพร้อม/.test(e.message));
@@ -96,7 +98,8 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(event.state.players.length, count);
         assert.equal(event.state.activeId, welcome.id);
         assert.equal(event.state.mode, count === 4 ? 'teams' : 'ffa');
-        assert.equal(event.state.weather, awaitedWeather);
+        assert.equal(event.state.players[1].hp, 105);
+        assert.deepEqual(event.state.players[1].equipment, { hat: 'health', armor: 'defense', boots: 'attack' });
         if (count === 3) {
           assert.equal(event.state.players[2].hp, event.state.players[2].mobile === 'aegis' ? 150 : 100);
           assert.equal(event.state.players[2].randomUsed, true);
@@ -171,20 +174,20 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     const trainee = new Client();
     const visitor = new Client();
     await Promise.all([trainee.open(), visitor.open()]);
-    trainee.send({ type: 'practice', name: 'Trainee', mobile: 'manta' });
+    trainee.send({ type: 'practice', name: 'Trainee', mobile: 'halo' });
     const practiceWelcome = await trainee.waitFor(e => e.type === 'welcome');
     assert.equal(practiceWelcome.type, 'welcome');
     const practiceState = await trainee.waitFor(e => e.type === 'state' && e.state.mode === 'practice');
     assert.equal(practiceState.type, 'state');
     assert.equal(practiceState.state.phase, 'playing');
-    assert.equal(practiceState.state.players[0].mobile, 'manta');
+    assert.equal(practiceState.state.players[0].mobile, 'halo');
     assert.equal(practiceState.state.deadline, 0);
     visitor.send({ type: 'join', code: practiceWelcome.code, name: 'Visitor' });
     await visitor.waitFor(e => e.type === 'error' && /ไม่พบห้อง/.test(e.message));
-    trainee.send({ type: 'fire', angle: 45, power: 50, mode: 'terrain' });
+    trainee.send({ type: 'fire', angle: 45, power: 50 });
     const practiceShot = await trainee.waitFor(e => e.type === 'shot');
     assert.equal(practiceShot.type, 'shot');
-    assert.equal(practiceShot.shot.mode, 'terrain');
+    assert.equal(practiceShot.shot.kind, 'damage');
     await trainee.waitFor(e => e.type === 'state' && e.state.turn === 2 && e.state.activeId === practiceWelcome.id);
     trainee.send({ type: 'fire', angle: 45, power: 50 });
     await trainee.waitFor(e => e.type === 'state' && e.state.turn === 3 && e.state.activeId === practiceWelcome.id);

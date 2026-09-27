@@ -201,12 +201,72 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
 #practice,.practice-entry select{min-height:45px;border:1px solid #78cbbf;border-radius:10px;background:#193f52;color:#e9fff4;font-weight:700;padding:7px 12px}
 #practice:hover{background:#286275}
 .practice-entry select{font-weight:500}
-.lobby-weather{margin:8px 0;padding:8px 11px;border:1px solid #82bbc1;border-radius:8px;background:#173e54;color:#dffaf1;font-size:13px}
-.weather-badge{position:absolute;right:12px;top:91px;padding:3px 9px;border:1px solid #9ccfd1;border-radius:6px;background:rgba(13,34,57,.55);color:#e5faf3;font-size:12px;font-weight:700;white-space:nowrap}
-.shot-mode{position:absolute;right:0;bottom:112px;min-width:190px;padding:6px 10px;border:1px solid #9ccbd0;border-radius:7px;background:rgba(13,34,57,.7);color:#e3f5f1;font-size:12px;font-weight:700}
-.shot-mode.selected{border-color:#f5c35a;background:rgba(85,65,34,.82);color:#fff0ba}
 .practice-options{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .practice-options button{padding:8px;border:1px solid #8ebbc5;border-radius:7px;background:#21465f;color:#fff2d7;font-size:12px;font-weight:700}
-@media(max-width:760px){.weather-badge{top:78px;right:5px;font-size:9px;padding:1px 5px}.shot-mode{right:0;bottom:62px;min-width:84px;font-size:9px;padding:3px 5px}}
-@media (max-width:1000px) and (max-height:520px) and (orientation:landscape){.weather-badge{top:48px;right:max(4px,env(safe-area-inset-right));font-size:9px}.shot-mode{bottom:60px;min-width:84px;font-size:9px}}
 @media(max-width:480px){.practice-entry{grid-template-columns:minmax(0,1fr) 110px;gap:8px}.practice-entry select{padding:4px}}
+.lobby-card .mobile-picker{grid-template-columns:repeat(4,minmax(0,1fr))}
+.equipment-picker{display:grid;gap:5px;margin:5px 0}
+.equipment-row{display:grid;grid-template-columns:82px repeat(4,minmax(0,1fr));gap:5px;align-items:center}
+.equipment-row>b{font-size:12px;color:#ffe2ac}
+.equipment-row button{height:55px;min-width:0;border:1px solid #7fa5b7;border-radius:7px;background:#1b364f;color:#e8f3e9;display:flex;align-items:center;justify-content:center;gap:5px;font-size:11px;font-weight:700;padding:3px}
+.equipment-row button img{width:40px;height:40px;object-fit:contain}
+.equipment-row button.selected{border:2px solid #f5c35a;background:#375066;box-shadow:0 0 9px #f5c35a66}
+.equipment-row button:disabled{cursor:default}
+.equipment-stats{margin:6px 0 10px;color:#98e5d5;font-size:13px;font-weight:700}
+.player-portrait-wrap{position:relative;width:62px;height:62px}
+.player-portrait-wrap .player-portrait{display:block}
+.player-gear{position:absolute;object-fit:contain;pointer-events:none;filter:drop-shadow(0 1px 2px #07172b)}
+.player-gear-hat{width:27px;height:27px;left:16px;top:0}
+.player-gear-armor{width:39px;height:28px;left:11px;top:27px}
+.player-gear-boots{width:43px;height:22px;left:10px;bottom:1px}
+.lobby-player-gear{display:flex;gap:2px;align-items:center;min-width:0}
+.lobby-player-gear img{width:22px;height:22px;object-fit:contain}
+@media(max-width:760px){.player-portrait-wrap{width:28px;height:31px}.player-gear-hat{width:14px;height:14px;left:7px;top:0}.player-gear-armor{width:19px;height:14px;left:5px;top:12px}.player-gear-boots{width:20px;height:11px;left:4px;bottom:0}}
+@media(max-height:520px) and (orientation:landscape){.lobby-player-gear img{width:15px;height:15px}}
+@media(max-width:520px){.lobby-card .mobile-picker{grid-template-columns:repeat(4,minmax(0,1fr))}.equipment-row{grid-template-columns:60px repeat(4,minmax(0,1fr));gap:3px}.equipment-row button{height:47px;font-size:9px;gap:1px}.equipment-row button img{width:24px;height:30px}.equipment-row>b{font-size:10px}}
+@media(max-height:520px) and (orientation:landscape){.lobby-card .mobile-picker{grid-template-columns:repeat(8,minmax(0,1fr))}.lobby-card .mobile-option img{height:35px}.equipment-row button{height:36px}.equipment-row button img{width:28px;height:31px}.equipment-picker{gap:3px}.equipment-stats{margin:3px 0;font-size:11px}}
+@media(min-width:1001px) and (min-height:600px){
+  .lobby-card{width:min(1050px,100%);padding:13px 30px}
+  .lobby-card h2{font-size:29px}
+  .lobby-card .invite{margin:5px 0;padding:5px 12px}
+  .lobby-card .mode-select{margin-bottom:4px}
+  .lobby-card .mobile-picker{grid-template-columns:repeat(8,minmax(0,1fr));gap:5px;margin:3px 0 7px}
+  .lobby-card .mobile-option{padding:3px 2px}
+  .lobby-card .mobile-option img{height:43px}
+  .lobby-card .mobile-option b{font-size:11px}
+  .lobby-card .mobile-option small{font-size:9px}
+  .equipment-row button{height:38px}
+  .equipment-row button img{width:31px;height:31px}
+  .random-mobile-row{margin:0 0 5px}
+  .lobby-card .hint{margin:3px 0}
+  .lobby-card>.primary{margin-top:3px;padding:7px}
+  .lobby-card .status{margin:3px 0;font-size:12px}
+}
+@media(min-width:621px) and (max-height:520px) and (orientation:landscape){
+  .lobby-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"title title" "invite invite" "mode mode" "mobilelabel equipmentlabel" "mobiles equipment" "random stats" "players players" "start start" "status status";column-gap:12px;row-gap:2px;width:min(100%,980px);max-height:98dvh;padding:5px 12px;overflow-y:auto}
+  .lobby-card h2{grid-area:title;font-size:19px}
+  .lobby-card .invite{grid-area:invite;margin:1px 0;padding:2px 7px}
+  .lobby-card .invite strong{font-size:16px}
+  .lobby-card .mode-select{grid-area:mode;margin:0}
+  #mobile-label{grid-area:mobilelabel}
+  #equipment-label{grid-area:equipmentlabel}
+  .lobby-card .lobby-picker-label{margin:0;font-size:10px}
+  .lobby-card .mobile-picker{grid-area:mobiles;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px;margin:0}
+  .lobby-card .mobile-option{padding:1px}
+  .lobby-card .mobile-option img{height:27px}
+  .lobby-card .mobile-option b{font-size:9px}
+  .lobby-card .mobile-option small{font-size:7px}
+  .equipment-picker{grid-area:equipment;gap:2px;margin:0}
+  .equipment-row{grid-template-columns:56px repeat(4,minmax(0,1fr));gap:2px}
+  .equipment-row>b{font-size:9px}
+  .equipment-row button{height:30px;gap:1px;padding:1px;font-size:8px}
+  .equipment-row button img{width:22px;height:22px}
+  .random-mobile-row{grid-area:random;margin:0;font-size:9px}
+  .random-mobile-row span{display:none}
+  #random-mobile{padding:3px 8px;font-size:10px}
+  .equipment-stats{grid-area:stats;margin:0;align-self:center;font-size:10px}
+  .lobby-players{grid-area:players;gap:2px}
+  .lobby-card .lobby-player{padding:2px 7px;font-size:10px}
+  .lobby-card>.primary{grid-area:start;margin:0;padding:3px;font-size:11px}
+  .lobby-card .status{grid-area:status;margin:0;font-size:9px}
+}
