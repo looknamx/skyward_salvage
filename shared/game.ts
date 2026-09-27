@@ -4,6 +4,8 @@ export const STEP = 10;
 export const TURN_MS = 30_000;
 export const MAX_PLAYERS = 4;
 export const MOVE_SPEED = 88;
+export const TURN_MOVE_LIMIT = 350;
+export const MIN_POWER = 5;
 
 export type MobileKind = 'loom' | 'manta' | 'borer';
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
@@ -27,6 +29,7 @@ export interface PlayerState {
   team: Team | null;
   specialAvailable: boolean;
   stats: PlayerStats;
+  walkedThisTurn: number;
 }
 
 export interface GameState {
@@ -72,7 +75,7 @@ export type ServerEvent =
   | { type: 'state'; state: GameState }
   | { type: 'shot'; shot: ShotResult }
   | { type: 'hit' }
-  | { type: 'item-used'; item: ItemKind }
+  | { type: 'item-used'; item: ItemKind | 'special' }
   | { type: 'item-picked'; item: ItemKind; playerId: string }
   | { type: 'match-summary'; summary: MatchSummary }
   | { type: 'error'; message: string };
@@ -136,7 +139,7 @@ export function createState(code: string, hostId: string, name: string, mobile: 
 export function makePlayer(id: string, name: string, mobile: MobileKind): PlayerState {
   return { id, name, mobile, x: 0, y: 0, hp: 100,
     items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1,
-    team: null, specialAvailable: true, stats: emptyStats() };
+    team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0 };
 }
 
 export function startRound(state: GameState, seed: number, now: number): void {
@@ -157,6 +160,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
     player.team = state.mode === 'teams' ? index % 2 as Team : null;
     player.specialAvailable = true;
     player.stats = emptyStats();
+    player.walkedThisTurn = 0;
   });
   settlePlayers(state);
   state.phase = 'playing';
@@ -174,6 +178,10 @@ export function startRound(state: GameState, seed: number, now: number): void {
 export function windFor(seed: number, turn: number): number {
   const roll = random(seed ^ Math.imul(turn, 0x9e3779b1))();
   return Math.round(roll * 16 - 8);
+}
+
+export function windChangesOn(seed: number, turn: number): boolean {
+  return random(seed ^ Math.imul(turn, 0x3c6ef372))() < 0.2;
 }
 
 export function finishOrAdvance(state: GameState, now: number): void {
@@ -200,7 +208,11 @@ export function finishOrAdvance(state: GameState, now: number): void {
   state.activeId = nextId;
   if (!nextId) { state.deadline = 0; state.message = 'รอผู้เล่นกลับเข้าห้อง'; return; }
   state.turn++;
-  state.wind = windFor(state.seed, state.turn);
+  if (windChangesOn(state.seed, state.turn)) {
+    const nextWind = windFor(state.seed, state.turn);
+    state.wind = nextWind === state.wind ? (nextWind === 8 ? 7 : nextWind + 1) : nextWind;
+  }
+  state.players.find(player => player.id === nextId)!.walkedThisTurn = 0;
   state.deadline = now + TURN_MS;
   state.message = `${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง`;
   if (state.turn % 8 === 0) spawnItemDrop(state);
@@ -246,10 +258,15 @@ export function movePlayer(state: GameState, playerId: string, direction: number
   const player = state.players.find(p => p.id === playerId)!;
   const turned = player.facing !== direction;
   player.facing = direction;
-  const nextX = Math.max(58, Math.min(WIDTH - 58, player.x + direction * MOVE_SPEED * Math.max(0, Math.min(100, elapsedMs)) / 1000));
+  const remaining = TURN_MOVE_LIMIT - player.walkedThisTurn;
+  if (remaining <= 0) return turned;
+  const step = Math.min(remaining, MOVE_SPEED * Math.max(0, Math.min(100, elapsedMs)) / 1000);
+  const nextX = Math.max(58, Math.min(WIDTH - 58, player.x + direction * step));
   if (state.players.some(other => other.id !== playerId && other.hp > 0 && Math.abs(other.x - nextX) < 72)) return turned;
   if (Math.abs(nextX - player.x) < 0.001) return turned;
-  player.stats.distanceMoved += Math.abs(nextX - player.x);
+  const moved = Math.abs(nextX - player.x);
+  player.stats.distanceMoved += moved;
+  player.walkedThisTurn += moved;
   player.x = nextX;
   player.y = groundAt(state.terrain, nextX) - 13;
   collectItemDrop(state, player);
@@ -346,7 +363,7 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
 
 export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false): ShotResult {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
-  if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < 20 || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
+  if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < MIN_POWER || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
   const player = state.players.find(p => p.id === playerId)!;
   if (special && !player.specialAvailable) throw new Error('ท่าพิเศษใช้ไปแล้ว');
   const info = MOBILE_INFO[player.mobile];
@@ -391,7 +408,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
 
 export function fireTeleport(state: GameState, playerId: string, angle: number, power: number, now: number): ShotResult {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
-  if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < 20 || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
+  if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < MIN_POWER || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
   const player = state.players.find(p => p.id === playerId)!;
   if (player.items.teleport < 1) throw new Error('ไอเทมหมดแล้ว');
   const shot = trace(state, player, worldAngle(state, player, angle), power, 0);

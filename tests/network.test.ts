@@ -79,9 +79,14 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       host.send({ type: 'move', direction: 0 });
       clients[1].send({ type: 'fire', angle: 45, power: 65 });
       await clients[1].waitFor(e => e.type === 'error');
-      host.send({ type: 'fire', angle: 45, power: 65 });
+      host.send({ type: 'fire', angle: 45, power: 65, special: count === 2 });
+      if (count === 2) {
+        const specialSounds = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'item-used' && e.item === 'special')));
+        assert.deepEqual(specialSounds, Array(count).fill(specialSounds[0]));
+      }
       const damageShots = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'shot')));
       assert.deepEqual(damageShots, Array(count).fill(damageShots[0]));
+      if (count === 2) assert.equal(damageShots[0].type === 'shot' && damageShots[0].shot.special, true);
       const next = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'state' && e.state.turn === 2)));
       for (const event of next) {
         assert.equal(event.type, 'state');

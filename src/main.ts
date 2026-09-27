@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GameScene } from './GameScene.ts';
-import { MOBILE_INFO } from '../shared/game.ts';
+import { MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, MobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
@@ -43,6 +43,7 @@ const movementSound = new Audio('/assets/sound/MOVEMENT.mp3');
 const hitSound = new Audio('/assets/sound/HIT.mp3');
 const dropSound = new Audio('/assets/sound/DROP_ITEM.mp3');
 const clockSound = new Audio('/assets/sound/CLOCK_TICKING.mp3');
+const windSound = new Audio('/assets/sound/WIND.mp3');
 bgm.loop = true;
 movementSound.loop = true;
 clockSound.loop = true;
@@ -53,6 +54,7 @@ movementSound.volume = 0.45;
 hitSound.volume = 0.7;
 dropSound.volume = 0.7;
 clockSound.volume = 0.55;
+windSound.volume = 0.65;
 let soundEnabled = true;
 let audioWantsStart = false;
 let movementStopTimer = 0;
@@ -158,7 +160,7 @@ function updateAim(): void {
 angleInput.addEventListener('input', updateAim);
 updateAim();
 function setPower(value: number): void {
-  powerMeter.value = Math.max(20, Math.min(100, value));
+  powerMeter.value = Math.max(MIN_POWER, Math.min(100, value));
   updateAim();
 }
 function fireChargedShot(): void {
@@ -168,13 +170,13 @@ function fireChargedShot(): void {
 }
 function chargePower(): void {
   if (chargeStartedAt === null) return;
-  setPower(20 + Math.min(1, (performance.now() - chargeStartedAt) / CHARGE_MS) * 80);
+  setPower(MIN_POWER + Math.min(1, (performance.now() - chargeStartedAt) / CHARGE_MS) * (100 - MIN_POWER));
   if (powerMeter.value < 100) chargeFrame = requestAnimationFrame(chargePower);
 }
 function beginCharge(): void {
   if (!canControl() || fireButton.disabled || chargeStartedAt !== null) return;
   chargeStartedAt = performance.now();
-  setPower(20);
+  setPower(MIN_POWER);
   fireButton.classList.add('charging');
   chargeFrame = requestAnimationFrame(chargePower);
 }
@@ -184,8 +186,8 @@ function endCharge(shouldFire: boolean): void {
   chargeStartedAt = null;
   cancelAnimationFrame(chargeFrame);
   fireButton.classList.remove('charging');
-  if (!shouldFire || !canControl()) { setPower(20); return; }
-  setPower(20 + Math.min(1, elapsed / CHARGE_MS) * 80);
+  if (!shouldFire || !canControl()) { setPower(MIN_POWER); return; }
+  setPower(MIN_POWER + Math.min(1, elapsed / CHARGE_MS) * (100 - MIN_POWER));
   fireChargedShot();
   suppressFireClick = true;
   window.setTimeout(() => { suppressFireClick = false; }, 0);
@@ -202,7 +204,7 @@ fireButton.addEventListener('pointercancel', () => endCharge(false));
 fireButton.addEventListener('lostpointercapture', () => endCharge(false));
 fireButton.addEventListener('click', event => {
   if (suppressFireClick) { event.preventDefault(); return; }
-  if (event.detail === 0 && canControl()) { setPower(20); fireChargedShot(); }
+  if (event.detail === 0 && canControl()) { setPower(MIN_POWER); fireChargedShot(); }
 });
 for (const eventName of ['contextmenu', 'selectstart', 'dragstart']) {
   fireButton.addEventListener(eventName, event => event.preventDefault());
@@ -279,7 +281,7 @@ function setSoundEnabled(enabled: boolean): void {
   soundToggle.checked = enabled;
   if (enabled) startBgm();
   else {
-    bgm.pause(); fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); stopClockSound();
+    bgm.pause(); fireSound.pause(); itemSound.pause(); hitSound.pause(); dropSound.pause(); windSound.pause(); stopClockSound();
     clearTimeout(hitTimer);
     stopMovementSound();
   }
@@ -359,6 +361,10 @@ function render(state: GameState): void {
   if (previous?.phase === 'playing') {
     const newDrop = state.drops.find(drop => !previous.drops.some(old => old.id === drop.id));
     if (newDrop) { playEffect(dropSound); toast('ไอเทมตกลงมาจากฟ้า! เดินไปเก็บเมื่อช่องว่าง'); }
+    if (state.turn !== previous.turn && state.wind !== previous.wind) playEffect(windSound);
+    const previousMe = previous.players.find(player => player.id === playerId);
+    const currentMe = state.players.find(player => player.id === playerId);
+    if (currentMe && state.activeId === playerId && previousMe && previousMe.walkedThisTurn < TURN_MOVE_LIMIT - 0.01 && currentMe.walkedThisTurn >= TURN_MOVE_LIMIT - 0.01) toast('เดินครบระยะของเทิร์นนี้แล้ว');
   }
   updateMovementSound(gameState, state);
   gameState = state;
@@ -410,8 +416,7 @@ function render(state: GameState): void {
     releaseMovement();
     setTeleportMode(false);
     setSpecialMode(false);
-    angleInput.value = '45';
-    setPower(20);
+    setPower(MIN_POWER);
     updateAim();
   }
   for (const id of ['angle', 'fire']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
@@ -459,7 +464,7 @@ function updateTimer(): void {
   if (!gameState || gameState.phase !== 'playing' || !gameState.activeId) { stopClockSound(); return; }
   const seconds = Math.max(0, Math.ceil((gameState.deadline - Date.now()) / 1000));
   $('timer').textContent = `${seconds}s`;
-  if (seconds > 0 && seconds <= 10 && soundEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {
+  if (seconds > 0 && seconds <= 5 && soundEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {
     if (clockSound.paused) void clockSound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
   } else if (!clockSound.paused) stopClockSound();
 }
@@ -499,7 +504,7 @@ function connect(): void {
         $('connection-status').classList.add('hidden');
         if (message.resumed) { audioWantsStart = true; startBgm(); toast('กลับเข้าห้องแล้ว'); }
       } else if (message.type === 'state') render(message.state);
-      else if (message.type === 'shot') { scene.showShot(message.shot); if (message.shot.kind === 'damage') playEffect(fireSound); }
+      else if (message.type === 'shot') { scene.showShot(message.shot); if (message.shot.kind === 'damage' && !message.shot.special) playEffect(fireSound); }
       else if (message.type === 'hit') { clearTimeout(hitTimer); hitTimer = window.setTimeout(() => playEffect(hitSound), 820); }
       else if (message.type === 'item-used' || message.type === 'item-picked') {
         playEffect(itemSound);

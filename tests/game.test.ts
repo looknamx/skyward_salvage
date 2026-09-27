@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound, turnPlayer, useItem, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, movePlayer, MOVE_SPEED, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
 
 test('round starts with 2–4 players, seeded terrain, and a server turn', () => {
   for (const count of [2, 3, 4]) {
@@ -23,6 +23,7 @@ test('turn owner, shot range, and item inventory are enforced', () => {
   startRound(state, 123, 1000);
   assert.throws(() => fireShot(state, 'p2', 45, 65, 1200), /เทิร์น/);
   assert.throws(() => fireShot(state, 'p1', 81, 65, 1200), /มุม/);
+  assert.throws(() => fireShot(state, 'p1', 45, 4, 1200), /พลัง/);
   assert.throws(() => fireTeleport(state, 'p2', 45, 65, 1200), /เทิร์น/);
   useItem(state, 'p1', 'double', 1200);
   assert.equal(state.players[0].doubleArmed, true);
@@ -33,6 +34,13 @@ test('turn owner, shot range, and item inventory are enforced', () => {
   assert.ok(result.paths[0][0].x > state.players[0].x);
   assert.equal(state.players[0].doubleArmed, false);
   assert.equal(state.activeId, 'p2');
+});
+
+test('five percent is a valid firing power', () => {
+  const state = createState('POWER5', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'manta'));
+  startRound(state, 12, 1000);
+  assert.equal(fireShot(state, 'p1', 45, 5, 1100).kind, 'damage');
 });
 
 test('repair and a fired teleport projectile spend a turn', () => {
@@ -65,6 +73,36 @@ test('walking is gradual, follows terrain, and is restricted to the active turn'
   assert.equal(state.players[0].facing, 1);
   turnPlayer(state, 'p1');
   assert.equal(state.players[0].facing, -1);
+});
+
+test('walking has a cumulative per-turn limit and resets on the next turn', () => {
+  const state = createState('WALK42', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'manta'));
+  startRound(state, 9, 1000);
+  for (let i = 0; i < 120; i++) movePlayer(state, 'p1', i % 2 === 0 ? 1 : -1, 100);
+  assert.ok(Math.abs(state.players[0].walkedThisTurn - TURN_MOVE_LIMIT) < 0.001);
+  const stoppedX = state.players[0].x;
+  movePlayer(state, 'p1', 1, 100);
+  assert.equal(state.players[0].x, stoppedX);
+  finishOrAdvance(state, 2000);
+  finishOrAdvance(state, 3000);
+  assert.equal(state.players[0].walkedThisTurn, 0);
+  assert.equal(movePlayer(state, 'p1', 1, 100), true);
+});
+
+test('wind only changes on seeded 20 percent rolls', () => {
+  const state = createState('WIND42', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'manta'));
+  startRound(state, 42, 1000);
+  let changed = 0;
+  for (let turn = 2; turn <= 1000; turn++) {
+    const before = state.wind;
+    finishOrAdvance(state, turn * 1000);
+    const expected = windChangesOn(state.seed, turn);
+    assert.equal(state.wind !== before, expected, `turn ${turn}`);
+    if (expected) changed++;
+  }
+  assert.ok(changed >= 150 && changed <= 250, `observed ${changed}/999 wind changes`);
 });
 
 test('2v2 assigns teams, prevents friendly fire, and supports a same-room round reset', () => {

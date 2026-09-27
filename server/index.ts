@@ -205,6 +205,7 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     const hpBefore = new Map(state.players.map(target => [target.id, target.hp]));
     if (action.special !== undefined && typeof action.special !== 'boolean') throw new Error('ชนิดกระสุนไม่ถูกต้อง');
     const shot = fireShot(state, current.id, Number(action.angle), Number(action.power), Date.now(), action.special === true);
+    if (action.special === true) broadcast(state.code, { type: 'item-used', item: 'special' });
     broadcast(state.code, { type: 'shot', shot });
     if (state.players.some(target => target.hp < (hpBefore.get(target.id) ?? target.hp))) broadcast(state.code, { type: 'hit' });
   } else if (action.type === 'item') {
