@@ -110,14 +110,89 @@ function toast(message: string): void {
 function pickMobile(kind: OrdinaryMobileKind): void {
   if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId) && !gameState.players.find(player => player.id === playerId)?.randomUsed) send({ type: 'select', mobile: kind });
 }
-document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => button.addEventListener('click', () => pickMobile(button.dataset.mobile as OrdinaryMobileKind)));
-document.querySelectorAll<HTMLButtonElement>('.equipment-row button').forEach(button => button.addEventListener('click', () => {
+type ReelId = 'mobile' | EquipmentSlot;
+type ReelOption = { value: string; label: string; image?: string };
+const reelOptions: Record<ReelId, ReelOption[]> = {
+  mobile: (['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder'] as OrdinaryMobileKind[]).map(value => ({ value, label: MOBILE_INFO[value].label, image: `/assets/characters/${value}.png` })),
+  hat: [], armor: [], flag: [],
+};
+for (const slot of ['hat', 'armor', 'flag'] as const) {
+  reelOptions[slot] = [{ value: 'none', label: 'ไม่ใส่' }, ...(['attack', 'defense', 'health'] as EquipmentSet[]).map(value => ({ value, label: value === 'attack' ? 'โจมตี +5' : value === 'defense' ? 'ป้องกัน +5' : 'เลือด +5', image: `/assets/equipment/${value}-${slot}.png` }))];
+}
+const reelSelection: Record<ReelId, string> = { mobile: 'loom', hat: 'none', armor: 'none', flag: 'none' };
+const reelElements = {} as Record<ReelId, HTMLElement>;
+let suppressReelClickUntil = 0;
+function chooseReelValue(reel: ReelId, value: string): void {
   const me = gameState?.players.find(player => player.id === playerId);
-  if (gameState?.phase !== 'lobby' || !me || gameState.lobbyReady.includes(playerId)) return;
-  const slot = button.closest<HTMLElement>('.equipment-row')?.dataset.slot as EquipmentSlot;
-  const set = button.dataset.set === 'none' ? null : button.dataset.set as EquipmentSet;
-  send({ type: 'equip', slot, set });
-}));
+  if (gameState?.phase !== 'lobby' || !me || gameState.lobbyReady.includes(playerId) || reelSelection[reel] === value) return;
+  if (reel === 'mobile') {
+    if (me.randomUsed) return;
+    pickMobile(value as OrdinaryMobileKind);
+  } else send({ type: 'equip', slot: reel, set: value === 'none' ? null : value as EquipmentSet });
+  reelSelection[reel] = value;
+  const element = reelElements[reel];
+  element.classList.remove('is-spinning');
+  void element.offsetWidth;
+  element.classList.add('is-spinning');
+  window.setTimeout(() => element.classList.remove('is-spinning'), 280);
+  paintReel(reel, false, gameState.lobbyReady.includes(playerId));
+}
+function stepReel(reel: ReelId, direction: number): void {
+  const element = reelElements[reel];
+  if (element.dataset.locked === 'true') return;
+  const options = reelOptions[reel];
+  const index = options.findIndex(option => option.value === reelSelection[reel]);
+  chooseReelValue(reel, options[(index + direction + options.length) % options.length].value);
+}
+function paintReel(reel: ReelId, masked: boolean, locked: boolean): void {
+  const element = reelElements[reel];
+  element.dataset.locked = String(locked || masked);
+  element.classList.toggle('is-locked', locked || masked);
+  const options = reelOptions[reel];
+  const index = Math.max(0, options.findIndex(option => option.value === reelSelection[reel]));
+  const windowElement = element.querySelector<HTMLElement>('.slot-reel-window')!;
+  windowElement.replaceChildren(...[-1, 0, 1].map(offset => {
+    const option = options[(index + offset + options.length) % options.length];
+    const choice = document.createElement('button');
+    choice.type = 'button';
+    choice.className = `slot-choice${offset === 0 ? ' is-selected' : ''}`;
+    choice.disabled = locked || masked;
+    choice.setAttribute('aria-pressed', String(offset === 0));
+    choice.setAttribute('aria-label', masked ? 'ผลสุ่มจะเปิดเผยเมื่อเริ่มเกม' : `${option.label}${offset === 0 ? ' เลือกอยู่' : ''}`);
+    if (masked) {
+      const mystery = document.createElement('strong'); mystery.className = 'slot-mystery'; mystery.textContent = offset === 0 ? '?' : '✦'; choice.append(mystery);
+    } else {
+      if (option.image) { const image = document.createElement('img'); image.src = option.image; image.alt = ''; choice.append(image); }
+      else { const empty = document.createElement('strong'); empty.className = 'slot-empty'; empty.textContent = '—'; choice.append(empty); }
+      const caption = document.createElement('span'); caption.textContent = option.label; choice.append(caption);
+    }
+    choice.addEventListener('click', () => { if (Date.now() >= suppressReelClickUntil) chooseReelValue(reel, option.value); });
+    return choice;
+  }));
+  element.querySelectorAll<HTMLButtonElement>('.slot-step').forEach(button => { button.disabled = locked || masked; });
+}
+const reelLabels: Record<ReelId, string> = { mobile: 'รถ', hat: 'หมวก', armor: 'เกราะ', flag: 'ธง' };
+for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) {
+  const element = document.createElement('section'); element.className = 'slot-reel'; element.dataset.reel = reel;
+  const heading = document.createElement('h3'); heading.textContent = reelLabels[reel];
+  const up = document.createElement('button'); up.type = 'button'; up.className = 'slot-step'; up.textContent = '▲'; up.setAttribute('aria-label', `${reelLabels[reel]} ก่อนหน้า`);
+  const windowElement = document.createElement('div'); windowElement.className = 'slot-reel-window'; windowElement.setAttribute('role', 'group'); windowElement.setAttribute('aria-label', `เลือก${reelLabels[reel]}`);
+  const down = document.createElement('button'); down.type = 'button'; down.className = 'slot-step'; down.textContent = '▼'; down.setAttribute('aria-label', `${reelLabels[reel]} ถัดไป`);
+  up.addEventListener('click', () => stepReel(reel, -1)); down.addEventListener('click', () => stepReel(reel, 1));
+  let pointerStart: { id: number; y: number } | null = null;
+  windowElement.addEventListener('pointerdown', event => { pointerStart = { id: event.pointerId, y: event.clientY }; });
+  windowElement.addEventListener('pointerup', event => {
+    if (!pointerStart || pointerStart.id !== event.pointerId) return;
+    const delta = event.clientY - pointerStart.y; pointerStart = null;
+    if (Math.abs(delta) < 24) return;
+    suppressReelClickUntil = Date.now() + 250;
+    stepReel(reel, delta < 0 ? 1 : -1);
+  });
+  windowElement.addEventListener('pointercancel', () => { pointerStart = null; });
+  windowElement.addEventListener('wheel', event => { event.preventDefault(); stepReel(reel, event.deltaY > 0 ? 1 : -1); }, { passive: false });
+  element.append(heading, up, windowElement, down); $('slot-reels').append(element); reelElements[reel] = element;
+  paintReel(reel, false, false);
+}
 $('random-mobile').addEventListener('click', () => {
   const me = gameState?.players.find(player => player.id === playerId);
   if (gameState?.phase === 'lobby' && me && !me.randomUsed && !gameState.lobbyReady.includes(playerId)) send({ type: 'random-mobile' });
@@ -385,7 +460,11 @@ document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(butto
 });
 window.addEventListener('keydown', event => {
   if (!canControl() || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
-  if (event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'KeyA' || event.code === 'KeyD') {
+  const itemShortcut: Record<string, string> = { Digit1: 'item-double', Digit2: 'item-repair', Digit3: 'item-teleport', Digit4: 'item-special', Numpad1: 'item-double', Numpad2: 'item-repair', Numpad3: 'item-teleport', Numpad4: 'item-special' };
+  if (itemShortcut[event.code]) {
+    if (!event.repeat) $(itemShortcut[event.code]).click();
+    event.preventDefault();
+  } else if (event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'KeyA' || event.code === 'KeyD') {
     keysDown.add(event.code);
     syncMovement(); event.preventDefault();
   } else if (event.code === 'ArrowUp' || event.code === 'ArrowDown' || event.code === 'KeyW' || event.code === 'KeyS') {
@@ -443,18 +522,13 @@ function render(state: GameState): void {
     const me = state.players.find(player => player.id === playerId);
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
-    document.querySelectorAll<HTMLButtonElement>('.mobile-option').forEach(button => {
-      button.classList.toggle('selected', !me?.randomUsed && button.dataset.mobile === me?.mobile);
-      button.disabled = isReady || !me?.connected || !!me.randomUsed;
-    });
+    if (me) {
+      reelSelection.mobile = me.mobile;
+      for (const slot of ['hat', 'armor', 'flag'] as const) reelSelection[slot] = me.equipment[slot] ?? 'none';
+    }
+    for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) paintReel(reel, reel === 'mobile' && !!me?.randomUsed, isReady || !me?.connected);
     ($('random-mobile') as HTMLButtonElement).disabled = isReady || !me?.connected || !!me.randomUsed;
     $('random-mobile').textContent = me?.randomUsed ? '🎲 สุ่มแล้ว' : '🎲 สุ่ม Mobile';
-    document.querySelectorAll<HTMLButtonElement>('.equipment-row button').forEach(button => {
-      const slot = button.closest<HTMLElement>('.equipment-row')?.dataset.slot as EquipmentSlot;
-      const set = button.dataset.set === 'none' ? null : button.dataset.set as EquipmentSet;
-      button.classList.toggle('selected', !!me && me.equipment[slot] === set);
-      button.disabled = isReady || !me?.connected;
-    });
     $('equipment-stats').textContent = me ? `โจมตี +${equipmentBonus(me, 'attack')} · ป้องกัน +${equipmentBonus(me, 'defense')} · เลือด +${equipmentBonus(me, 'health')}` : '';
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');

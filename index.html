@@ -36,24 +36,11 @@
           <h2>เตรียมออกเดินทาง</h2>
           <div class="invite">รหัสห้อง <strong id="lobby-code"></strong> <button id="copy-link">คัดลอกลิงก์</button></div>
           <label class="mode-select" for="match-mode">รูปแบบการเล่น <select id="match-mode"><option value="ffa">ทุกคนสู้กัน</option><option value="teams">ทีม 2v2 (ต้องมี 4 คน)</option></select></label>
-          <p id="mobile-label" class="lobby-picker-label">เลือก Mobile ของคุณ</p>
-          <div class="mobile-picker" role="group" aria-label="เลือก Mobile">
-            <button class="mobile-option" data-mobile="loom"><img src="/assets/characters/loom.png" alt="" /><b>LOOM</b><small>ยิงแม่น</small></button>
-            <button class="mobile-option" data-mobile="manta"><img src="/assets/characters/manta.png" alt="" /><b>MANTA</b><small>กระสุนคู่</small></button>
-            <button class="mobile-option" data-mobile="borer"><img src="/assets/characters/borer.png" alt="" /><b>BORER</b><small>เจาะพื้น</small></button>
-            <button class="mobile-option" data-mobile="vesper"><img src="/assets/characters/vesper.png" alt="" /><b>VESPER</b><small>ทนแรงลม</small></button>
-            <button class="mobile-option" data-mobile="bramble"><img src="/assets/characters/bramble.png" alt="" /><b>BRAMBLE</b><small>ฟื้นพลัง</small></button>
-            <button class="mobile-option" data-mobile="halo"><img src="/assets/characters/halo.png" alt="" /><b>HALO</b><small>เล็งแม่น</small></button>
-            <button class="mobile-option" data-mobile="kestrel"><img src="/assets/characters/kestrel.png" alt="" /><b>KESTREL</b><small>กระสุนคู่</small></button>
-            <button class="mobile-option" data-mobile="cinder"><img src="/assets/characters/cinder.png" alt="" /><b>CINDER</b><small>ระเบิดหนัก</small></button>
+          <div id="slot-machine" class="slot-machine" aria-label="ตู้เลือก Mobile และชุดสวมใส่">
+            <div class="slot-machine-heading"><strong>ตู้ปรับแต่ง Mobile</strong><span>คลิกหรือปัดขึ้นลงเพื่อหมุนแต่ละช่อง</span></div>
+            <div id="slot-reels" class="slot-reels"></div>
+            <p id="equipment-stats" class="equipment-stats">โจมตี +0 · ป้องกัน +0 · เลือด +0</p>
           </div>
-          <p id="equipment-label" class="lobby-picker-label">แต่ง Mobile · เลือกแต่ละชิ้นแยกกัน</p>
-          <div class="equipment-picker" role="group" aria-label="เลือกของสวมใส่">
-            <div class="equipment-row" data-slot="hat"><b>หมวก</b><button type="button" data-set="none">ไม่ใส่</button><button type="button" data-set="attack" title="โจมตี +5"><img src="/assets/equipment/attack-hat.png" alt="" /><span>โจมตี +5</span></button><button type="button" data-set="defense" title="ป้องกัน +5"><img src="/assets/equipment/defense-hat.png" alt="" /><span>ป้องกัน +5</span></button><button type="button" data-set="health" title="เลือด +5"><img src="/assets/equipment/health-hat.png" alt="" /><span>เลือด +5</span></button></div>
-            <div class="equipment-row" data-slot="armor"><b>เสื้อ/เกราะ</b><button type="button" data-set="none">ไม่ใส่</button><button type="button" data-set="attack" title="โจมตี +5"><img src="/assets/equipment/attack-armor.png" alt="" /><span>โจมตี +5</span></button><button type="button" data-set="defense" title="ป้องกัน +5"><img src="/assets/equipment/defense-armor.png" alt="" /><span>ป้องกัน +5</span></button><button type="button" data-set="health" title="เลือด +5"><img src="/assets/equipment/health-armor.png" alt="" /><span>เลือด +5</span></button></div>
-            <div class="equipment-row" data-slot="flag"><b>ธง</b><button type="button" data-set="none">ไม่ใส่</button><button type="button" data-set="attack" title="โจมตี +5"><img src="/assets/equipment/attack-flag.png" alt="" /><span>โจมตี +5</span></button><button type="button" data-set="defense" title="ป้องกัน +5"><img src="/assets/equipment/defense-flag.png" alt="" /><span>ป้องกัน +5</span></button><button type="button" data-set="health" title="เลือด +5"><img src="/assets/equipment/health-flag.png" alt="" /><span>เลือด +5</span></button></div>
-          </div>
-          <p id="equipment-stats" class="equipment-stats">โจมตี +0 · ป้องกัน +0 · เลือด +0</p>
           <div class="random-mobile-row"><button id="random-mobile" type="button">🎲 สุ่ม Mobile</button><span>รู้ผลเมื่อเริ่มเกม · สุ่มได้ครั้งเดียว · โอกาสได้ AEGIS 150 HP 5%</span></div>
           <div id="lobby-players" class="lobby-players"></div>
           <p class="hint">เลือก Mobile แล้วกดพร้อม • หัวหน้าห้องเริ่มเกมเมื่อทุกคนพร้อม</p>
@@ -80,7 +67,7 @@
           <button class="dpad-down" type="button" data-direction="down" aria-label="ลดมุมยิง">▼</button>
         </div>
         <div id="turn-banner" class="hidden"></div>
-        <div id="control-hint" class="hidden">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
+        <div id="control-hint" class="hidden">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; 1–4 ใช้ไอเทม &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
         <div id="controls">
           <div class="aim-panel">
             <div class="aim-dial"><span class="dial-needle" id="dial-needle"></span><output id="angle-value">45°</output></div>
@@ -90,10 +77,10 @@
             </div>
           </div>
           <div class="item-panel">
-            <button id="item-double" title="เพิ่มดาเมจของนัดนี้ 2 เท่า"><img src="/assets/ui/double.png" alt="" /><span>×2</span><small id="count-double">1</small></button>
-            <button id="item-repair" title="ฟื้นฟู 28 HP และจบเทิร์น"><img src="/assets/ui/repair.png" alt="" /><span>ซ่อม</span><small id="count-repair">1</small></button>
-            <button id="item-teleport" title="เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
-            <button id="item-special" title="ท่าพิเศษของ Mobile ใช้ได้หนึ่งครั้งต่อรอบ และเติมใหม่ได้จากไอเทมที่ตกจากฟ้า"><img src="/assets/ui/special.png" alt="" /><span>ท่าพิเศษ</span><small id="count-special">1</small></button>
+            <button id="item-double" title="ปุ่ม 1 · เพิ่มดาเมจของนัดนี้ 2 เท่า"><img src="/assets/ui/double.png" alt="" /><span>×2</span><small id="count-double">1</small></button>
+            <button id="item-repair" title="ปุ่ม 2 · ฟื้นฟู 28 HP และจบเทิร์น"><img src="/assets/ui/repair.png" alt="" /><span>ซ่อม</span><small id="count-repair">1</small></button>
+            <button id="item-teleport" title="ปุ่ม 3 · เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
+            <button id="item-special" title="ปุ่ม 4 · ท่าพิเศษของ Mobile ใช้ได้หนึ่งครั้งต่อรอบ และเติมใหม่ได้จากไอเทมที่ตกจากฟ้า"><img src="/assets/ui/special.png" alt="" /><span>ท่าพิเศษ</span><small id="count-special">1</small></button>
           </div>
           <button id="fire" class="fire-button" title="กดค้างเพื่อเพิ่มพลัง ปล่อยเพื่อยิง">FIRE</button>
         </div>
