@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomMobileFromRoll, resetPractice, returnToLobby, startRound, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -167,7 +167,9 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (current) throw new Error('คุณอยู่ในห้องแล้ว');
     const id = randomBytes(12).toString('hex');
     const code = roomCode();
-    const state = createState(code, id, cleanName(action.name), mobile(action.mobile ?? 'loom'));
+    const kind = action.mobile ?? 'loom';
+    if (!Object.hasOwn(MOBILE_INFO, kind)) throw new Error('Mobile ไม่ถูกต้อง');
+    const state = createState(code, id, cleanName(action.name), kind);
     state.mode = 'practice';
     state.players.push(makePlayer(`target-${code}`, 'หุ่นฝึก', 'borer'));
     startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
@@ -232,6 +234,9 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
       entrant.hp = maxHpFor(entrant);
     }
     summarySent.delete(state.code);
+  } else if (action.type === 'practice-mobile') {
+    selectPracticeMobile(state, current.id, action.mobile, Date.now());
+    movement.delete(state.code);
   } else if (action.type === 'reset-practice') {
     if (state.mode !== 'practice' || current.id !== state.hostId) throw new Error('ใช้ได้เฉพาะโหมดฝึก');
     movement.delete(state.code);

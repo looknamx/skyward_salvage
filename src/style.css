@@ -324,3 +324,71 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
   #lobby .lobby-card .invite{height:32px}
   #lobby .mode-select select{padding:2px 6px;font-size:11px}
 }
+
+/* Wind / turn plaques and a separate circular countdown, with the existing 35% glass. */
+#hud .weather-panel{width:300px;min-width:0;height:auto;display:grid;grid-template-columns:minmax(0,1fr) 88px 35px;gap:8px;padding:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+#hud .weather-panel .status-chip{display:flex;align-items:center;justify-content:center;height:40px;padding:0 9px;background:var(--hud-glass);border:1px solid #91afc2;border-radius:6px;font:600 16px Outfit,sans-serif;letter-spacing:.04em;white-space:nowrap;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#hud .weather-panel #turn{border-left:1px solid #91afc2;padding:0 8px;font-size:14px}
+#hud .settings-toggle{grid-row:1;grid-column:3;align-self:center}
+#player-strip{right:332px}
+.countdown{--time-left:100;--timer-color:#60e0dd;position:relative;grid-column:2/4;grid-row:2;justify-self:end;width:84px;height:84px;border:3px solid #23485b;border-radius:50%;background:var(--hud-glass);box-shadow:0 2px 5px #071a2855;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.countdown svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.countdown circle{fill:none;stroke-width:7}.timer-track{stroke:#436b79}.timer-ring{stroke:var(--timer-color);stroke-dasharray:100;stroke-dashoffset:calc(100 - var(--time-left));transition:stroke-dashoffset .1s linear,stroke .2s}
+.timer-value{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:3px;color:#fff7e6}
+#hud .timer-value strong{font:600 34px Outfit,sans-serif;color:#fff7e6;line-height:1;font-variant-numeric:tabular-nums}
+.timer-value small{font:500 17px Outfit,sans-serif;align-self:center;margin-top:12px}.countdown.is-urgent{--timer-color:#ff997a}
+.settings-popup{top:58px;max-height:calc(100% - 70px);overflow-y:auto}
+.practice-mobile-option{grid-column:1/-1;display:grid;gap:5px;font-size:13px;color:#deeee8}
+.practice-mobile-option select{width:100%;padding:7px 9px;border:1px solid #8ebbc5;border-radius:7px;background:#173950;color:#fff2d7;font:inherit;pointer-events:auto}
+.item-panel button:nth-child(5)::after{content:"5"}
+#controls .aim-panel{flex-shrink:1;min-width:0}
+#item-double-play span{font-size:10px}
+@media(max-width:1100px){#controls .item-panel button{min-width:54px;width:54px}#controls .item-panel button img{width:47px;height:56px}}
+@media(max-width:760px){
+  #player-strip{right:5px}
+  #hud .weather-panel{top:42px;right:5px;width:210px;grid-template-columns:minmax(0,1fr) 64px 26px;gap:4px}
+  #hud .weather-panel .status-chip{height:28px;font-size:12px;padding:0 5px}
+  #hud .weather-panel #turn{font-size:11px;padding:0 4px}
+  .countdown{width:56px;height:56px;border-width:2px}
+  #hud .timer-value strong{font-size:24px}.timer-value small{font-size:12px;margin-top:8px}
+  .settings-popup{top:75px;max-height:calc(100% - 84px)}
+  #controls .item-panel button{min-width:30px;width:30px}#controls .item-panel button img{width:27px;height:29px}
+  #controls .item-panel button span{font-size:7px;max-width:100%;overflow:hidden}
+  #controls .aim-panel{flex:1 1 130px;width:auto}
+}
+@media(max-width:1000px) and (max-height:520px) and (orientation:landscape){
+  #player-strip{right:calc(218px + env(safe-area-inset-right))}
+  #hud .weather-panel{top:4px;right:max(4px,env(safe-area-inset-right));width:210px;grid-template-columns:minmax(0,1fr) 64px 27px;gap:4px}
+  #hud .weather-panel .status-chip{height:30px;font-size:12px;padding:0 5px}
+  #hud .weather-panel #turn{font-size:11px;padding:0 4px}
+  .countdown{width:57px;height:57px;border-width:2px}
+  #hud .timer-value strong{font-size:24px}.timer-value small{font-size:12px;margin-top:8px}
+  .settings-popup{top:39px;max-height:calc(100% - 48px)}
+  #controls .aim-panel{flex:0 1 clamp(140px,24vw,200px);width:auto}
+  #controls .item-panel button{min-width:35px;width:35px}#controls .item-panel button img{width:29px;height:29px}
+  .touch-dpad{left:auto;right:calc(clamp(84px,10vw,100px) + 16px + env(safe-area-inset-right));bottom:68px;grid-template-columns:repeat(4,36px);grid-template-rows:36px}
+  .dpad-left{grid-column:1;grid-row:1}.dpad-right{grid-column:2;grid-row:1}.dpad-up{grid-column:3;grid-row:1}.dpad-down{grid-column:4;grid-row:1}
+}
+@media(max-width:510px){#controls{gap:3px}#controls .aim-panel{flex:1 1 90px}#controls .item-panel{padding:2px;gap:1px}#controls .item-panel button{min-width:27px;width:27px}#controls .item-panel button img{width:25px;height:27px}#controls .fire-button{min-width:67px;width:67px;flex:0 0 67px;font-size:14px}#controls .aim-dial{flex-basis:36px;width:36px;height:36px}#controls .aim-sliders label{font-size:7px}#controls .aim-sliders output{font-size:9px}}
+@media(prefers-reduced-motion:reduce){.timer-ring{transition:none}}
+@media(max-width:1000px) and (max-height:520px) and (orientation:landscape){
+  .player-portrait-wrap{width:25px;height:34px}
+  .player-gear-hat{width:14px;height:14px;left:6px;top:0}.player-gear-armor{width:19px;height:14px;left:3px;top:13px}.player-gear-flag{width:17px;height:22px;left:-5px;top:-9px}
+  #controls .dial-needle{height:18px;width:2px}#controls .dial-needle::after{top:-5px;left:-3px;border-left-width:4px;border-right-width:4px;border-bottom-width:6px}
+  #controls .aim-dial output{font-size:11px;bottom:1px}
+  #controls .item-panel button span{font-size:7px;white-space:nowrap}
+}
+
+/* Raster controls render consistently across device fonts and emoji sets. */
+.control-icon{display:block;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.settings-toggle{display:grid;place-items:center;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.settings-toggle .control-icon{width:100%;height:100%;min-width:0;min-height:0}
+.touch-dpad button{display:grid;place-items:center;padding:0;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.touch-dpad .control-icon{width:100%;height:100%;min-width:0;min-height:0}
+.direction-up{transform:rotate(0deg)}.direction-right{transform:rotate(90deg)}.direction-down{transform:rotate(180deg)}.direction-left{transform:rotate(-90deg)}
+.slot-step .control-icon{width:20px;height:100%;max-height:18px;margin:auto}
+
+/* Decorative map art fills letterboxing; the 1280×720 battlefield stays unchanged. */
+#ambient-background{position:fixed;inset:-8px;z-index:0;pointer-events:none;background-color:#101b32;background-image:linear-gradient(rgba(10,25,42,.22),rgba(10,25,42,.22)),var(--ambient-scene,url('/assets/environment/cloud-reef.png'));background-position:center;background-size:cover;background-repeat:no-repeat;filter:blur(5px)}
+#app{z-index:1}
+#app:has(#hud:not(.hidden)){background:transparent}

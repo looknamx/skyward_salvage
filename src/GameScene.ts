@@ -2,11 +2,14 @@ import Phaser from 'phaser';
 import { groundAt, HEIGHT, random, STEP, vehicleTilt, WIDTH } from '../shared/game.ts';
 import type { EquipmentSlot, GameState, MeteorEvent, MobileKind, ShotResult } from '../shared/game.ts';
 
-const backgrounds = {
+export const MAP_BACKGROUNDS = {
   'cloud-reef': '/assets/environment/cloud-reef.png',
   'clockwork-orchard': '/assets/environment/clockwork-orchard.png',
   'glass-dunes': '/assets/environment/glass-dunes.png',
 };
+const SHOT_TRAVEL_MS = 820;
+const SHOT_EFFECT_MS = 1360;
+const METEOR_EFFECT_MS = 1150;
 const kinds: MobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder', 'aegis'];
 const gearSlots: EquipmentSlot[] = ['hat', 'armor', 'flag'];
 const surfaceColors = {
@@ -39,13 +42,13 @@ export class GameScene extends Phaser.Scene {
   constructor() { super('battle'); }
 
   preload(): void {
-    for (const [key, url] of Object.entries(backgrounds)) {
+    for (const [key, url] of Object.entries(MAP_BACKGROUNDS)) {
       this.load.image(key, url);
       this.load.image(`${key}-rock`, `/assets/terrain/${key}-rock.png`);
     }
     for (const kind of kinds) this.load.image(`mobile-${kind}`, `/assets/characters/${kind}.png`);
     for (const set of ['attack', 'defense', 'health']) for (const slot of gearSlots) this.load.image(`gear-${set}-${slot}`, `/assets/equipment/${set}-${slot}.png`);
-    for (const item of ['double', 'repair', 'teleport', 'special']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
+    for (const item of ['double', 'repair', 'teleport', 'double-play', 'special']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
   }
 
   create(): void {
@@ -61,7 +64,7 @@ export class GameScene extends Phaser.Scene {
 
   setSnapshot(state: GameState, playerId: string): void {
     this.playerId = playerId;
-    if (this.effect && this.time.now - this.effect.started < 820 && this.state?.phase === 'playing') {
+    if (this.effect && this.time.now - this.effect.started < SHOT_TRAVEL_MS && this.state?.phase === 'playing') {
       this.pendingState = state;
       return;
     }
@@ -103,10 +106,18 @@ export class GameScene extends Phaser.Scene {
     this.pendingState = null;
   }
 
+  getPresentationRemainingMs(): number {
+    const shotElapsed = this.effect ? this.time.now - this.effect.started : SHOT_EFFECT_MS;
+    const meteorElapsed = this.meteorEffect ? this.time.now - this.meteorEffect.started : METEOR_EFFECT_MS;
+    const pendingMeteor = this.pendingState?.meteor && this.pendingState.meteor.turn !== this.state?.meteor?.turn;
+    return Math.max(0, SHOT_EFFECT_MS - shotElapsed, METEOR_EFFECT_MS - meteorElapsed,
+      pendingMeteor ? Math.max(0, SHOT_TRAVEL_MS - shotElapsed) + METEOR_EFFECT_MS : 0);
+  }
+
   update(): void {
     if (!this.effects) return;
     this.effects.clear();
-    if (this.effect && this.pendingState && this.time.now - this.effect.started >= 820) {
+    if (this.effect && this.pendingState && this.time.now - this.effect.started >= SHOT_TRAVEL_MS) {
       this.applyState(this.pendingState);
       this.pendingState = null;
     }
@@ -294,12 +305,12 @@ export class GameScene extends Phaser.Scene {
   private renderShot(): void {
     if (!this.effect) return;
     const elapsed = this.time.now - this.effect.started;
-    if (elapsed > 1360) { this.effect = null; return; }
+    if (elapsed > SHOT_EFFECT_MS) { this.effect = null; return; }
     const g = this.effects;
     const teleport = this.effect.data.kind === 'teleport';
     const special = !!this.effect.data.special;
-    if (elapsed < 820) {
-      const fraction = elapsed / 820;
+    if (elapsed < SHOT_TRAVEL_MS) {
+      const fraction = elapsed / SHOT_TRAVEL_MS;
       for (const path of this.effect.data.paths) {
         if (!path.length) continue;
         const index = Math.min(path.length - 1, Math.floor(fraction * (path.length - 1)));
@@ -308,7 +319,7 @@ export class GameScene extends Phaser.Scene {
         g.fillStyle(teleport ? 0xc6a2ff : special ? 0xbaffef : 0xfff1b7, 1); g.fillCircle(p.x, p.y, 5);
       }
     } else {
-      const expansion = Math.min(1, (elapsed - 820) / 540);
+      const expansion = Math.min(1, (elapsed - SHOT_TRAVEL_MS) / (SHOT_EFFECT_MS - SHOT_TRAVEL_MS));
       for (const impact of this.effect.data.impacts) {
         g.lineStyle(4 * (1 - expansion), teleport ? 0xb887ff : special ? 0x76f5dc : 0xffe0a0, 1 - expansion);
         g.strokeCircle(impact.x, impact.y, impact.radius * expansion);
@@ -319,7 +330,7 @@ export class GameScene extends Phaser.Scene {
   private renderMeteor(): void {
     if (!this.meteorEffect) return;
     const elapsed = this.time.now - this.meteorEffect.started;
-    if (elapsed > 1150) { this.meteorEffect = null; return; }
+    if (elapsed > METEOR_EFFECT_MS) { this.meteorEffect = null; return; }
     const { x, y } = this.meteorEffect.data;
     if (elapsed < 650) {
       const progress = elapsed / 650;

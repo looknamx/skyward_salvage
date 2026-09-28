@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, movePlayer, MOVE_SPEED, randomMobileFromRoll, resetPractice, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
+import { collectItemDrop, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, movePlayer, MOVE_SPEED, randomMobileFromRoll, resetPractice, selectPracticeMobile, returnToLobby, startRound as startRoundCore, TURN_MOVE_LIMIT, turnPlayer, useItem, windChangesOn, windFor } from '../shared/game.ts';
 import type { GameState } from '../shared/game.ts';
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -325,12 +325,15 @@ test('an item drops on turn 8 and only an empty matching slot can collect it', (
   assert.equal(state.drops[0].spawnedTurn, 16);
 });
 
-test('drop odds are 30/30/30/10 and a special drop refills only an empty special slot', () => {
+test('drop odds are 23/23/23/23/8 and a special drop refills only an empty special slot', () => {
   assert.equal(dropKindForRoll(0), 'double');
-  assert.equal(dropKindForRoll(0.299999), 'double');
-  assert.equal(dropKindForRoll(0.3), 'repair');
-  assert.equal(dropKindForRoll(0.6), 'teleport');
-  assert.equal(dropKindForRoll(0.9), 'special');
+  assert.equal(dropKindForRoll(0.229999), 'double');
+  assert.equal(dropKindForRoll(0.23), 'repair');
+  assert.equal(dropKindForRoll(0.46), 'teleport');
+  assert.equal(dropKindForRoll(0.689999), 'teleport');
+  assert.equal(dropKindForRoll(0.69), 'double-play');
+  assert.equal(dropKindForRoll(0.919999), 'double-play');
+  assert.equal(dropKindForRoll(0.92), 'special');
   assert.equal(dropKindForRoll(0.999999), 'special');
   const state = createState('SPEC10', 'p1', 'One', 'loom');
   const player = state.players[0];
@@ -343,4 +346,71 @@ test('drop odds are 30/30/30/10 and a special drop refills only an empty special
   assert.equal(player.specialAvailable, true);
   assert.equal(player.stats.pickups, 1);
   assert.equal(state.drops.length, 0);
+});
+
+test('Double Play gives one fresh consecutive turn, then resumes normal order', () => {
+  const state = createState('DOUBLE', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'borer'));
+  startRound(state, 123, 1000);
+  const player = state.players[0];
+  player.walkedThisTurn = TURN_MOVE_LIMIT;
+  useItem(state, 'p1', 'double-play', 1500);
+  assert.equal(state.turn, 1);
+  assert.equal(player.items['double-play'], 0);
+  assert.equal(player.extraTurnArmed, true);
+  player.items['double-play'] = 1;
+  assert.throws(() => useItem(state, 'p1', 'double-play', 1600), /Double Play/);
+  useItem(state, 'p1', 'repair', 2000);
+  assert.equal(state.activeId, 'p1');
+  assert.equal(state.turn, 2);
+  assert.equal(state.deadline, 32000);
+  assert.equal(player.walkedThisTurn, 0);
+  assert.equal(player.extraTurnArmed, false);
+  finishOrAdvance(state, 32000);
+  assert.equal(state.activeId, 'p2');
+  assert.equal(state.turn, 3);
+});
+
+test('Double Play works after shooting and expiry, but never retains a dead or disconnected player', () => {
+  for (const end of ['shot', 'expiry', 'dead', 'disconnected'] as const) {
+    const state = createState('EXTRA1', 'p1', 'One', 'loom');
+    state.players.push(makePlayer('p2', 'Two', 'borer'), makePlayer('p3', 'Three', 'halo'));
+    startRound(state, 123, 0);
+    useItem(state, 'p1', 'double-play', 1);
+    if (end === 'dead') state.players[0].hp = 0;
+    if (end === 'disconnected') state.players[0].connected = false;
+    if (end === 'shot') fireShot(state, 'p1', 80, 5, 1000);
+    else finishOrAdvance(state, 30000);
+    assert.equal(state.activeId, end === 'dead' || end === 'disconnected' ? 'p2' : 'p1');
+    assert.equal(state.players[0].extraTurnArmed, false);
+    if (state.activeId === 'p1') { finishOrAdvance(state, 60000); assert.equal(state.activeId, 'p2'); }
+  }
+});
+
+test('Double Play drops fill only an empty item slot', () => {
+  const state = createState('PICKUP', 'p1', 'One', 'loom');
+  const player = state.players[0]; player.x = 300;
+  state.drops.push({ id: 'extra', item: 'double-play', x: 300, y: 400, spawnedTurn: 8 });
+  assert.equal(collectItemDrop(state, player), null);
+  player.items['double-play'] = 0;
+  assert.equal(collectItemDrop(state, player), 'double-play');
+  assert.equal(player.items['double-play'], 1);
+});
+
+test('practice Mobile selection resets the same arena with the chosen vehicle and fresh inventory', () => {
+  const state = createState('TRAIN1', 'p1', 'One', 'loom');
+  state.mode = 'practice'; state.players.push(makePlayer('target', 'Target', 'borer'));
+  startRound(state, 123, 0);
+  const terrain = [...state.terrain];
+  fireShot(state, 'p1', 30, 50, 1000);
+  selectPracticeMobile(state, 'p1', 'aegis', 2000);
+  assert.equal(state.players[0].mobile, 'aegis');
+  assert.equal(state.players[0].hp, 150);
+  assert.equal(state.players[0].items['double-play'], 1);
+  assert.equal(state.turn, 1); assert.equal(state.deadline, 0);
+  assert.deepEqual(state.terrain, terrain);
+  assert.throws(() => selectPracticeMobile(state, 'target', 'loom', 3000), /โหมดฝึก/);
+  assert.throws(() => selectPracticeMobile(state, 'p1', 'bad' as never, 3000), /Mobile/);
+  state.mode = 'ffa';
+  assert.throws(() => selectPracticeMobile(state, 'p1', 'loom', 3000), /โหมดฝึก/);
 });

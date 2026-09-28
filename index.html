@@ -7,6 +7,7 @@
     <title>Skyward Salvage</title>
   </head>
   <body>
+    <div id="ambient-background" aria-hidden="true"></div>
     <div id="app">
       <div id="game" aria-label="สนามต่อสู้"></div>
       <section id="landing" class="overlay">
@@ -20,7 +21,7 @@
             <label for="name">ชื่อผู้เล่น <input id="name" maxlength="18" placeholder="ชื่อของคุณ" autocomplete="nickname" /></label>
             <div class="room-actions">
               <button id="create" class="primary" type="button">สร้างห้องใหม่</button>
-              <div class="practice-entry"><button id="practice" type="button">ฝึกยิงคนเดียว</button><select id="practice-mobile" aria-label="เลือก Mobile สำหรับโหมดฝึก"><option value="loom">Loom</option><option value="manta">Manta</option><option value="borer">Borer</option><option value="vesper">Vesper</option><option value="bramble">Bramble</option><option value="halo">Halo</option><option value="kestrel">Kestrel</option><option value="cinder">Cinder</option></select></div>
+              <div class="practice-entry"><button id="practice" type="button">ฝึกยิงคนเดียว</button><select id="practice-mobile" aria-label="เลือก Mobile สำหรับโหมดฝึก"><option value="loom">Loom</option><option value="manta">Manta</option><option value="borer">Borer</option><option value="vesper">Vesper</option><option value="bramble">Bramble</option><option value="halo">Halo</option><option value="kestrel">Kestrel</option><option value="cinder">Cinder</option><option value="aegis">Aegis · 150 HP</option></select></div>
               <div class="join-section">
                 <span class="join-label">หรือเข้าห้องของเพื่อน</span>
                 <div class="join-row"><input id="room-code" maxlength="6" placeholder="รหัสห้อง 6 ตัว" aria-label="รหัสห้อง" /><button id="join" type="button">เข้าห้อง</button></div>
@@ -41,7 +42,7 @@
             <div id="slot-reels" class="slot-reels"></div>
             <p id="equipment-stats" class="equipment-stats">โจมตี +0 · ป้องกัน +0 · เลือด +0</p>
           </div>
-          <div class="random-mobile-row"><button id="random-mobile" type="button">🎲 สุ่ม Mobile</button><span>รู้ผลเมื่อเริ่มเกม · สุ่มได้ครั้งเดียว · โอกาสได้ AEGIS 150 HP 5%</span></div>
+          <div class="random-mobile-row"><button id="random-mobile" type="button">สุ่ม Mobile</button><span>รู้ผลเมื่อเริ่มเกม · สุ่มได้ครั้งเดียว · โอกาสได้ AEGIS 150 HP 5%</span></div>
           <div id="lobby-players" class="lobby-players"></div>
           <p class="hint">เลือก Mobile แล้วกดพร้อม • หัวหน้าห้องเริ่มเกมเมื่อทุกคนพร้อม</p>
           <button id="start" class="primary" disabled>เริ่มเกม</button>
@@ -51,23 +52,23 @@
       </section>
       <div id="hud" class="hidden">
         <div id="player-strip"></div>
-        <div class="weather-panel"><span id="wind">WIND → 0</span><span id="turn">TURN 01</span><strong id="timer">30s</strong><button id="settings-toggle" class="settings-toggle" type="button" aria-label="ตั้งค่า" aria-controls="settings-popup" aria-expanded="false" title="ตั้งค่า">⚙</button></div>
+        <div class="weather-panel"><span id="wind" class="status-chip">WIND → 0</span><span id="turn" class="status-chip">TURN 01</span><div id="countdown" class="countdown" role="timer" aria-label="เวลาที่เหลือ"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="timer-track" cx="50" cy="50" r="44"/><circle class="timer-ring" cx="50" cy="50" r="44" pathLength="100"/></svg><div class="timer-value"><strong id="timer">30</strong><small id="timer-unit">s</small></div></div><button id="settings-toggle" class="settings-toggle" type="button" aria-label="ตั้งค่า" aria-controls="settings-popup" aria-expanded="false" title="ตั้งค่า"><img class="control-icon" src="/assets/ui/settings-icon.png" alt="" draggable="false" /></button></div>
         <div id="settings-popup" class="settings-popup hidden" role="dialog" aria-labelledby="settings-title">
           <div class="settings-heading"><strong id="settings-title">ตั้งค่า</strong><button id="settings-close" type="button" aria-label="ปิดการตั้งค่า">×</button></div>
           <label class="settings-option" for="touch-controls-toggle"><span>ปุ่มลูกศรบนหน้าจอ<small>เดินและปรับมุมสำหรับมือถือ</small></span><input id="touch-controls-toggle" type="checkbox" /></label>
           <label class="settings-option" for="guidance-toggle"><span>ข้อความแนะนำการเล่น<small>แสดงข้อความบอกเทิร์นและวิธีควบคุม</small></span><input id="guidance-toggle" type="checkbox" /></label>
           <label class="settings-option" for="bgm-toggle"><span>BGM<small>เพลงพื้นหลัง</small></span><input id="bgm-toggle" type="checkbox" checked /></label>
           <label class="settings-option" for="sfx-toggle"><span>SFX<small>เสียงยิง ไอเทม ลม และเสียงเตือน</small></span><input id="sfx-toggle" type="checkbox" checked /></label>
-          <div id="practice-options" class="practice-options hidden"><button id="practice-reset" type="button">เริ่มสนามฝึกใหม่</button><button id="practice-exit" type="button">ออกจากโหมดฝึก</button></div>
+          <div id="practice-options" class="practice-options hidden"><label class="practice-mobile-option" for="practice-mobile-in-game">Mobile สำหรับฝึก<select id="practice-mobile-in-game"></select></label><button id="practice-reset" type="button">เริ่มสนามฝึกใหม่</button><button id="practice-exit" type="button">ออกจากโหมดฝึก</button></div>
         </div>
         <div id="touch-dpad" class="touch-dpad hidden" role="group" aria-label="ปุ่มควบคุมบนหน้าจอ">
-          <button class="dpad-up" type="button" data-direction="up" aria-label="เพิ่มมุมยิง">▲</button>
-          <button class="dpad-left" type="button" data-direction="left" aria-label="เดินซ้าย">◀</button>
-          <button class="dpad-right" type="button" data-direction="right" aria-label="เดินขวา">▶</button>
-          <button class="dpad-down" type="button" data-direction="down" aria-label="ลดมุมยิง">▼</button>
+          <button class="dpad-up" type="button" data-direction="up" aria-label="เพิ่มมุมยิง"><img class="control-icon direction-icon direction-up" src="/assets/ui/direction-arrow.png" alt="" draggable="false" /></button>
+          <button class="dpad-left" type="button" data-direction="left" aria-label="เดินซ้าย"><img class="control-icon direction-icon direction-left" src="/assets/ui/direction-arrow.png" alt="" draggable="false" /></button>
+          <button class="dpad-right" type="button" data-direction="right" aria-label="เดินขวา"><img class="control-icon direction-icon direction-right" src="/assets/ui/direction-arrow.png" alt="" draggable="false" /></button>
+          <button class="dpad-down" type="button" data-direction="down" aria-label="ลดมุมยิง"><img class="control-icon direction-icon direction-down" src="/assets/ui/direction-arrow.png" alt="" draggable="false" /></button>
         </div>
         <div id="turn-banner" class="hidden"></div>
-        <div id="control-hint" class="hidden">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; 1–4 ใช้ไอเทม &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
+        <div id="control-hint" class="hidden">← → / A D เดินได้ประมาณ 1.5 คัน/เทิร์น &nbsp;·&nbsp; ↑ ↓ / W S ปรับมุม 10–80° &nbsp;·&nbsp; R กลับรถ &nbsp;·&nbsp; 1–5 ใช้ไอเทม &nbsp;·&nbsp; กดยิงค้างเพิ่มพลัง</div>
         <div id="controls">
           <div class="aim-panel">
             <div class="aim-dial"><span class="dial-needle" id="dial-needle"></span><output id="angle-value">45°</output></div>
@@ -80,7 +81,8 @@
             <button id="item-double" title="ปุ่ม 1 · เพิ่มดาเมจของนัดนี้ 2 เท่า"><img src="/assets/ui/double.png" alt="" /><span>×2</span><small id="count-double">1</small></button>
             <button id="item-repair" title="ปุ่ม 2 · ฟื้นฟู 28 HP และจบเทิร์น"><img src="/assets/ui/repair.png" alt="" /><span>ซ่อม</span><small id="count-repair">1</small></button>
             <button id="item-teleport" title="ปุ่ม 3 · เลือกไอเทม แล้วกดยิงค้างและปล่อยเพื่อย้ายไปยังจุดตก"><img src="/assets/ui/teleport.png" alt="" /><span>ย้าย</span><small id="count-teleport">1</small></button>
-            <button id="item-special" title="ปุ่ม 4 · ท่าพิเศษของ Mobile ใช้ได้หนึ่งครั้งต่อรอบ และเติมใหม่ได้จากไอเทมที่ตกจากฟ้า"><img src="/assets/ui/special.png" alt="" /><span>ท่าพิเศษ</span><small id="count-special">1</small></button>
+            <button id="item-double-play" title="ปุ่ม 4 · Double Play เล่นต่ออีกหนึ่งเทิร์นหลังจบเทิร์นนี้"><img src="/assets/ui/double-play.png" alt="" /><span>Double Play</span><small id="count-double-play">1</small></button>
+            <button id="item-special" title="ปุ่ม 5 · ท่าพิเศษของ Mobile ใช้ได้หนึ่งครั้งต่อรอบ และเติมใหม่ได้จากไอเทมที่ตกจากฟ้า"><img src="/assets/ui/special.png" alt="" /><span>ท่าพิเศษ</span><small id="count-special">1</small></button>
           </div>
           <button id="fire" class="fire-button" title="กดค้างเพื่อเพิ่มพลัง ปล่อยเพื่อยิง">FIRE</button>
         </div>

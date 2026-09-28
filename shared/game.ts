@@ -10,7 +10,7 @@ export const MIN_POWER = 5;
 export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'halo' | 'kestrel' | 'cinder' | 'aegis';
 export type OrdinaryMobileKind = Exclude<MobileKind, 'aegis'>;
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
-export type ItemKind = 'double' | 'repair' | 'teleport';
+export type ItemKind = 'double' | 'repair' | 'teleport' | 'double-play';
 export type DropKind = ItemKind | 'special';
 export type MatchMode = 'ffa' | 'teams' | 'practice';
 export type EquipmentSlot = 'hat' | 'armor' | 'flag';
@@ -30,6 +30,7 @@ export interface PlayerState {
   hp: number;
   items: Record<ItemKind, number>;
   doubleArmed: boolean;
+  extraTurnArmed: boolean;
   connected: boolean;
   facing: -1 | 1;
   team: Team | null;
@@ -69,7 +70,8 @@ export interface MatchSummary { code: string; mode: MatchMode; winnerId: string 
 
 export type ClientAction =
   | { type: 'create'; name: string; mobile?: OrdinaryMobileKind }
-  | { type: 'practice'; name: string; mobile?: OrdinaryMobileKind }
+  | { type: 'practice'; name: string; mobile?: MobileKind }
+  | { type: 'practice-mobile'; mobile: MobileKind }
   | { type: 'join'; code: string; name: string; mobile?: OrdinaryMobileKind }
   | { type: 'select'; mobile: OrdinaryMobileKind }
   | { type: 'equip'; slot: EquipmentSlot; set: EquipmentSet | null }
@@ -118,9 +120,10 @@ export function randomMobileFromRoll(rareRoll: number, ordinaryRoll: number): Mo
   return ORDINARY_MOBILES[Math.min(ORDINARY_MOBILES.length - 1, Math.floor(ordinaryRoll * ORDINARY_MOBILES.length))];
 }
 export function dropKindForRoll(roll: number): DropKind {
-  if (roll < 0.3) return 'double';
-  if (roll < 0.6) return 'repair';
-  if (roll < 0.9) return 'teleport';
+  if (roll < 0.23) return 'double';
+  if (roll < 0.46) return 'repair';
+  if (roll < 0.69) return 'teleport';
+  if (roll < 0.92) return 'double-play';
   return 'special';
 }
 function emptyStats(): PlayerStats { return { shots: 0, hits: 0, damageDealt: 0, damageTaken: 0, itemsUsed: 0, pickups: 0, distanceMoved: 0 }; }
@@ -175,7 +178,7 @@ export function createState(code: string, hostId: string, name: string, mobile: 
 
 export function makePlayer(id: string, name: string, mobile: MobileKind): PlayerState {
   return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
-    items: { double: 1, repair: 1, teleport: 1 }, doubleArmed: false, connected: true, facing: 1,
+    items: { double: 1, repair: 1, teleport: 1, 'double-play': 1 }, doubleArmed: false, extraTurnArmed: false, connected: true, facing: 1,
     team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false,
     equipment: { hat: null, armor: null, flag: null } };
 }
@@ -193,8 +196,9 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.players.forEach((player, index) => {
     player.x = slots[state.players.length][index];
     player.hp = maxHpFor(player);
-    player.items = { double: 1, repair: 1, teleport: 1 };
+    player.items = { double: 1, repair: 1, teleport: 1, 'double-play': 1 };
     player.doubleArmed = false;
+    player.extraTurnArmed = false;
     player.facing = player.x > WIDTH / 2 ? -1 : 1;
     player.team = state.mode === 'teams' ? index % 2 as Team : null;
     player.specialAvailable = true;
@@ -287,7 +291,8 @@ export function finishOrAdvance(state: GameState, now: number): void {
     target.hp = maxHpFor(target);
     target.x = 1070;
     target.y = groundAt(state.terrain, target.x) - 13;
-    trainee.items = { double: 1, repair: 1, teleport: 1 };
+    trainee.items = { double: 1, repair: 1, teleport: 1, 'double-play': 1 };
+    trainee.extraTurnArmed = false;
     trainee.specialAvailable = true;
     trainee.walkedThisTurn = 0;
     state.activeId = trainee.id;
@@ -302,6 +307,9 @@ export function finishOrAdvance(state: GameState, now: number): void {
   }
   if (finishIfDecided(state)) return;
   const oldIndex = state.players.findIndex(p => p.id === state.activeId);
+  const previousPlayer = state.players[oldIndex];
+  const extraTurn = !!previousPlayer?.extraTurnArmed;
+  if (previousPlayer) previousPlayer.extraTurnArmed = false;
   state.turn++;
   state.meteor = null;
   if (windChangesOn(state.seed, state.turn)) {
@@ -313,8 +321,8 @@ export function finishOrAdvance(state: GameState, now: number): void {
     dropMeteor(state, Math.round(x));
   }
   if (finishIfDecided(state)) return;
-  let nextId: string | null = null;
-  for (let offset = 1; offset <= state.players.length; offset++) {
+  let nextId: string | null = extraTurn && previousPlayer.hp > 0 && previousPlayer.connected ? previousPlayer.id : null;
+  for (let offset = 1; !nextId && offset <= state.players.length; offset++) {
     const candidate = state.players[(oldIndex + offset) % state.players.length];
     if (candidate.hp > 0 && candidate.connected) {
       nextId = candidate.id;
@@ -334,6 +342,14 @@ export function resetPractice(state: GameState, seed: number, now: number): void
   state.phase = 'lobby';
   startRound(state, seed, now);
   state.message = 'โหมดฝึก · เริ่มสนามใหม่แล้ว';
+}
+
+export function selectPracticeMobile(state: GameState, playerId: string, kind: MobileKind, now: number): void {
+  if (state.mode !== 'practice' || state.phase !== 'playing' || state.hostId !== playerId) throw new Error('ใช้ได้เฉพาะโหมดฝึก');
+  if (!Object.hasOwn(MOBILE_INFO, kind)) throw new Error('Mobile ไม่ถูกต้อง');
+  state.players.find(player => player.id === playerId)!.mobile = kind;
+  resetPractice(state, state.seed, now);
+  state.message = `โหมดฝึก · ${MOBILE_INFO[kind].label}`;
 }
 
 export function spawnItemDrop(state: GameState): ItemDrop | null {
@@ -559,7 +575,15 @@ export function fireTeleport(state: GameState, playerId: string, angle: number, 
 export function useItem(state: GameState, playerId: string, item: ItemKind, now: number): void {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
   const player = state.players.find(p => p.id === playerId)!;
-  if (!['double', 'repair', 'teleport'].includes(item) || player.items[item] < 1) throw new Error('ไอเทมหมดแล้ว');
+  if (!['double', 'repair', 'teleport', 'double-play'].includes(item) || player.items[item] < 1) throw new Error('ไอเทมหมดแล้ว');
+  if (item === 'double-play') {
+    if (player.extraTurnArmed) throw new Error('เปิดใช้ Double Play แล้ว');
+    player.extraTurnArmed = true;
+    player.items[item]--;
+    player.stats.itemsUsed++;
+    state.message = `${player.name} ใช้ Double Play · ได้เล่นเทิร์นถัดไปอีกครั้ง`;
+    return;
+  }
   if (item === 'double') {
     if (player.doubleArmed) throw new Error('เปิดใช้ไอเทมแล้ว');
     player.doubleArmed = true;

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
-import { GameScene } from './GameScene.ts';
-import { equipmentBonus, maxHpFor, MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT } from '../shared/game.ts';
-import type { ClientAction, EquipmentSet, EquipmentSlot, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
+import { GameScene, MAP_BACKGROUNDS } from './GameScene.ts';
+import { equipmentBonus, maxHpFor, MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT, TURN_MS } from '../shared/game.ts';
+import type { ClientAction, EquipmentSet, EquipmentSlot, GameState, MatchSummary, MobileKind, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -21,6 +21,9 @@ let teleportMode = false;
 let specialMode = false;
 let lastOwnTurn = 0;
 let toastTimer: number | undefined;
+let resultRevealTimer = 0;
+let resultRevealKey: string | null = null;
+const RESULT_DELAY_MS = 5000;
 const keysDown = new Set<string>();
 const touchPressed = { left: false, right: false };
 const touchReleaseHandlers: Array<() => void> = [];
@@ -112,6 +115,14 @@ function toast(message: string): void {
 function pickMobile(kind: OrdinaryMobileKind): void {
   if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId) && !gameState.players.find(player => player.id === playerId)?.randomUsed) send({ type: 'select', mobile: kind });
 }
+function directionIcon(direction: 'up' | 'down'): HTMLImageElement {
+  const icon = document.createElement('img');
+  icon.className = `control-icon direction-icon direction-${direction}`;
+  icon.src = '/assets/ui/direction-arrow.png';
+  icon.alt = ''; icon.draggable = false;
+  return icon;
+}
+
 type ReelId = 'mobile' | EquipmentSlot;
 type ReelOption = { value: string; label: string; image?: string };
 const reelOptions: Record<ReelId, ReelOption[]> = {
@@ -178,9 +189,9 @@ const reelLabels: Record<ReelId, string> = { mobile: 'รถ', hat: 'หมว�
 for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) {
   const element = document.createElement('section'); element.className = 'slot-reel'; element.dataset.reel = reel;
   const heading = document.createElement('h3'); heading.textContent = reelLabels[reel];
-  const up = document.createElement('button'); up.type = 'button'; up.className = 'slot-step'; up.textContent = '▲'; up.setAttribute('aria-label', `${reelLabels[reel]} ก่อนหน้า`);
+  const up = document.createElement('button'); up.type = 'button'; up.className = 'slot-step'; up.append(directionIcon('up')); up.setAttribute('aria-label', `${reelLabels[reel]} ก่อนหน้า`);
   const windowElement = document.createElement('div'); windowElement.className = 'slot-reel-window'; windowElement.setAttribute('role', 'group'); windowElement.setAttribute('aria-label', `เลือก${reelLabels[reel]}`);
-  const down = document.createElement('button'); down.type = 'button'; down.className = 'slot-step'; down.textContent = '▼'; down.setAttribute('aria-label', `${reelLabels[reel]} ถัดไป`);
+  const down = document.createElement('button'); down.type = 'button'; down.className = 'slot-step'; down.append(directionIcon('down')); down.setAttribute('aria-label', `${reelLabels[reel]} ถัดไป`);
   up.addEventListener('click', () => stepReel(reel, -1)); down.addEventListener('click', () => stepReel(reel, 1));
   let pointerStart: { id: number; y: number } | null = null;
   windowElement.addEventListener('pointerdown', event => { pointerStart = { id: event.pointerId, y: event.clientY }; });
@@ -228,7 +239,7 @@ $('practice').addEventListener('click', () => {
   $('landing-error').textContent = '';
   audioWantsStart = true;
   startBgm();
-  send({ type: 'practice', name, mobile: ($('practice-mobile') as HTMLSelectElement).value as OrdinaryMobileKind });
+  send({ type: 'practice', name, mobile: ($('practice-mobile') as HTMLSelectElement).value as MobileKind });
 });
 $('start').addEventListener('click', () => send({ type: 'start' }));
 $('lobby-ready').addEventListener('click', () => send({ type: 'lobby-ready', ready: !gameState?.lobbyReady.includes(playerId) }));
@@ -245,6 +256,11 @@ $('again').addEventListener('click', () => {
   socket?.close();
   location.href = '/';
 });
+const practiceMobileSelect = $('practice-mobile-in-game') as HTMLSelectElement;
+for (const [kind, info] of Object.entries(MOBILE_INFO)) {
+  const option = document.createElement('option'); option.value = kind; option.textContent = `${info.label} · ${info.maxHp} HP`; practiceMobileSelect.append(option);
+}
+practiceMobileSelect.addEventListener('change', () => { releaseMovement(); endCharge(false); send({ type: 'practice-mobile', mobile: practiceMobileSelect.value as MobileKind }); });
 $('practice-reset').addEventListener('click', () => { closeSettings(); send({ type: 'reset-practice' }); });
 $('practice-exit').addEventListener('click', () => {
   leavingRoom = true;
@@ -315,6 +331,7 @@ for (const eventName of ['contextmenu', 'selectstart', 'dragstart']) {
   fireButton.addEventListener(eventName, event => event.preventDefault());
 }
 fireButton.addEventListener('touchstart', event => event.preventDefault(), { passive: false });
+$('item-double-play').addEventListener('click', () => send({ type: 'item', item: 'double-play' }));
 $('item-double').addEventListener('click', () => send({ type: 'item', item: 'double' }));
 $('item-repair').addEventListener('click', () => send({ type: 'item', item: 'repair' }));
 $('item-teleport').addEventListener('click', () => { setTeleportMode(!teleportMode); if (teleportMode) toast('เล็งมุม กดยิงค้างเพื่อเพิ่มพลัง แล้วปล่อยเพื่อย้าย'); });
@@ -378,8 +395,8 @@ function setTouchControls(visible: boolean): void {
 }
 function setGuidanceVisible(visible: boolean): void {
   guidanceToggle.checked = visible;
-  $('turn-banner').classList.toggle('hidden', !visible);
-  $('control-hint').classList.toggle('hidden', !visible);
+  $('turn-banner').classList.toggle('hidden', !visible || gameState?.phase === 'finished');
+  $('control-hint').classList.toggle('hidden', !visible || gameState?.phase === 'finished');
   try { localStorage.setItem('skyward-guidance', visible ? 'on' : 'off'); } catch { /* Storage can be unavailable. */ }
 }
 try { setGuidanceVisible(localStorage.getItem('skyward-guidance') === 'on'); }
@@ -462,8 +479,8 @@ document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(butto
   }
 });
 window.addEventListener('keydown', event => {
-  if (!canControl() || (event.target instanceof HTMLInputElement && event.target.type !== 'range')) return;
-  const itemShortcut: Record<string, string> = { Digit1: 'item-double', Digit2: 'item-repair', Digit3: 'item-teleport', Digit4: 'item-special', Numpad1: 'item-double', Numpad2: 'item-repair', Numpad3: 'item-teleport', Numpad4: 'item-special' };
+  if (!canControl() || (event.target instanceof HTMLInputElement && event.target.type !== 'range') || event.target instanceof HTMLSelectElement) return;
+  const itemShortcut: Record<string, string> = { Digit1: 'item-double', Digit2: 'item-repair', Digit3: 'item-teleport', Digit4: 'item-double-play', Digit5: 'item-special', Numpad1: 'item-double', Numpad2: 'item-repair', Numpad3: 'item-teleport', Numpad4: 'item-double-play', Numpad5: 'item-special' };
   if (itemShortcut[event.code]) {
     if (!event.repeat) $(itemShortcut[event.code]).click();
     event.preventDefault();
@@ -485,8 +502,41 @@ window.addEventListener('keyup', event => {
 });
 window.addEventListener('blur', () => { releaseMovement(); endCharge(false); });
 
+function cancelResultReveal(): void {
+  clearTimeout(resultRevealTimer);
+  resultRevealTimer = 0;
+  resultRevealKey = null;
+  $('result').classList.add('hidden');
+}
+
+function syncResultReveal(state: GameState): void {
+  if (state.phase !== 'finished') { cancelResultReveal(); return; }
+  const key = `${state.code}:${state.seed}`;
+  if (resultRevealKey === key) return;
+  cancelResultReveal();
+  closeSettings();
+  resultRevealKey = key;
+  const isCurrentResult = (): boolean => resultRevealKey === key && gameState?.phase === 'finished' && `${gameState.code}:${gameState.seed}` === key;
+  const waitForFinalPlay = (): void => {
+    if (!isCurrentResult()) return;
+    const remaining = scene.getPresentationRemainingMs();
+    if (remaining > 0) {
+      resultRevealTimer = window.setTimeout(waitForFinalPlay, Math.max(16, Math.ceil(remaining)));
+      return;
+    }
+    resultRevealTimer = window.setTimeout(() => {
+      if (isCurrentResult()) $('result').classList.remove('hidden');
+      resultRevealTimer = 0;
+    }, RESULT_DELAY_MS);
+  };
+  waitForFinalPlay();
+}
+
 function render(state: GameState): void {
   const previous = gameState;
+  if (state.mode === 'practice' && previous?.mode === 'practice' && (state.turn < previous.turn || state.seed !== previous.seed || state.players.find(player => player.id === playerId)?.mobile !== previous.players.find(player => player.id === playerId)?.mobile)) {
+    lastOwnTurn = 0;
+  }
   if (previous?.phase === 'finished' && state.phase !== 'finished') {
     setTeleportMode(false);
     setSpecialMode(false);
@@ -513,10 +563,13 @@ function render(state: GameState): void {
     if (me?.randomUsed) toast(`สุ่มได้ ${MOBILE_INFO[me.mobile].label}!`);
   }
   scene.setSnapshot(state, playerId);
+  $('ambient-background').style.setProperty('--ambient-scene', `url("${MAP_BACKGROUNDS[state.map]}")`);
   $('landing').classList.add('hidden');
   $('lobby').classList.toggle('hidden', state.phase !== 'lobby');
   $('hud').classList.toggle('hidden', state.phase === 'lobby');
-  $('result').classList.toggle('hidden', state.phase !== 'finished');
+  syncResultReveal(state);
+  $('turn-banner').classList.toggle('hidden', !guidanceToggle.checked || state.phase === 'finished');
+  $('control-hint').classList.toggle('hidden', !guidanceToggle.checked || state.phase === 'finished');
   if (state.phase === 'lobby') {
     $('lobby-code').textContent = state.code;
     const modeSelect = $('match-mode') as HTMLSelectElement;
@@ -531,13 +584,13 @@ function render(state: GameState): void {
     }
     for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) paintReel(reel, reel === 'mobile' && !!me?.randomUsed, isReady || !me?.connected);
     ($('random-mobile') as HTMLButtonElement).disabled = isReady || !me?.connected || !!me.randomUsed;
-    $('random-mobile').textContent = me?.randomUsed ? '🎲 สุ่มแล้ว' : '🎲 สุ่ม Mobile';
+    $('random-mobile').textContent = me?.randomUsed ? 'สุ่มแล้ว' : 'สุ่ม Mobile';
     $('equipment-stats').textContent = me ? `โจมตี +${equipmentBonus(me, 'attack')} · ป้องกัน +${equipmentBonus(me, 'defense')} · เลือด +${equipmentBonus(me, 'health')}` : '';
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
       const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
-      const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? '🎲 รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
+      const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? 'รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
       const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
       ready.textContent = player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
       element.append(name, mobile, ready);
@@ -582,9 +635,11 @@ function render(state: GameState): void {
   $('turn-banner').textContent = state.activeId === playerId ? 'เทิร์นของคุณ • เล็งแล้ว FIRE' : state.message;
   if (state.mode === 'practice') $('turn-banner').textContent = 'โหมดฝึก · ยิงเป้าได้ต่อเนื่อง';
   const me = state.players.find(player => player.id === playerId);
+  if (me && state.mode === 'practice') practiceMobileSelect.value = me.mobile;
   const canAct = socket?.readyState === WebSocket.OPEN && !resumePending && state.phase === 'playing' && state.activeId === playerId && !!me && me.hp > 0;
   if (canAct && state.turn !== lastOwnTurn) {
     lastOwnTurn = state.turn;
+    endCharge(false);
     releaseMovement();
     setTeleportMode(false);
     setSpecialMode(false);
@@ -595,11 +650,12 @@ function render(state: GameState): void {
   ($('item-special') as HTMLButtonElement).disabled = !canAct || !me?.specialAvailable;
   $('count-special').textContent = me?.specialAvailable ? '1' : '0';
   document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => { button.disabled = !canAct; });
-  for (const item of ['double', 'repair', 'teleport'] as const) {
-    ($<HTMLButtonElement>(`item-${item}`)).disabled = !canAct || !me?.items[item] || (item === 'double' && me.doubleArmed);
+  for (const item of ['double', 'repair', 'teleport', 'double-play'] as const) {
+    ($<HTMLButtonElement>(`item-${item}`)).disabled = !canAct || !me?.items[item] || (item === 'double' && me.doubleArmed) || (item === 'double-play' && !!me?.extraTurnArmed);
     $(`count-${item}`).textContent = String(me?.items[item] ?? 0);
   }
   $('item-double').classList.toggle('selected', !!me?.doubleArmed);
+  $('item-double-play').classList.toggle('selected', !!me?.extraTurnArmed);
   if (!canAct) { endCharge(false); setTeleportMode(false); setSpecialMode(false); releaseMovement(); }
   if (state.phase === 'finished') {
     $('result-title').textContent = state.mode === 'teams' && state.winnerTeam !== null ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : state.winnerId ? `${state.players.find(player => player.id === state.winnerId)?.name ?? ''} ชนะ!` : 'เสมอ!';
@@ -633,10 +689,13 @@ function renderSummary(summary: MatchSummary): void {
 }
 $('rematch-ready').addEventListener('click', () => send({ type: 'rematch-ready', ready: !gameState?.rematchReady.includes(playerId) }));
 function updateTimer(): void {
-  if (!gameState || gameState.phase !== 'playing' || !gameState.activeId) { stopClockSound(); return; }
-  if (gameState.mode === 'practice') { $('timer').textContent = '∞'; stopClockSound(); return; }
+  if (!gameState || gameState.phase !== 'playing' || !gameState.activeId) { $('timer').textContent = '—'; $('timer-unit').textContent = ''; $('countdown').style.setProperty('--time-left', '0'); $('countdown').classList.remove('is-urgent'); stopClockSound(); return; }
+  if (gameState.mode === 'practice') { $('timer').textContent = '∞'; $('timer-unit').textContent = ''; $('countdown').style.setProperty('--time-left', '100'); $('countdown').classList.remove('is-urgent'); stopClockSound(); return; }
   const seconds = Math.max(0, Math.ceil((gameState.deadline - Date.now()) / 1000));
-  $('timer').textContent = `${seconds}s`;
+  $('timer').textContent = String(seconds);
+  $('timer-unit').textContent = 's';
+  $('countdown').style.setProperty('--time-left', String(Math.max(0, Math.min(100, (gameState.deadline - Date.now()) / TURN_MS * 100))));
+  $('countdown').classList.toggle('is-urgent', seconds <= 5);
   if (seconds > 0 && seconds <= 5 && sfxEnabled && audioWantsStart && socket?.readyState === WebSocket.OPEN && !resumePending) {
     if (clockSound.paused) void clockSound.play().catch(() => { /* Audio needs a user gesture on some devices. */ });
   } else if (!clockSound.paused) stopClockSound();
@@ -690,6 +749,7 @@ function connect(): void {
           resumePending = false;
           try { sessionStorage.removeItem(SESSION_KEY); } catch { /* Storage can be unavailable. */ }
           gameState = null; playerId = '';
+          cancelResultReveal();
           $('landing').classList.remove('hidden');
           $('lobby').classList.add('hidden'); $('hud').classList.add('hidden'); $('result').classList.add('hidden');
           $('connection-status').classList.add('hidden');

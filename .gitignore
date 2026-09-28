@@ -3,3 +3,4 @@ dist/
 .env
 /sound/
 .playwright-cli/
+.tunnel/

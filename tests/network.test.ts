@@ -177,6 +177,37 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       }
       clients.forEach(client => client.close());
     }
+    // Verify the extra turn and subsequent handoff are identical for every peer.
+    for (const count of [2, 3, 4]) {
+      const peers = Array.from({ length: count }, () => new Client());
+      await Promise.all(peers.map(peer => peer.open()));
+      peers[0].send({ type: 'create', name: 'Double Host' });
+      const welcome = await peers[0].waitFor(e => e.type === 'welcome');
+      assert.equal(welcome.type, 'welcome');
+      for (const peer of peers.slice(1)) {
+        peer.send({ type: 'join', code: welcome.code, name: 'Ready Guest' });
+        await peer.waitFor(e => e.type === 'welcome');
+      }
+      for (const peer of peers.slice(1)) peer.send({ type: 'lobby-ready', ready: true });
+      await peers[0].waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      peers[0].send({ type: 'start' });
+      await Promise.all(peers.map(peer => peer.waitFor(e => e.type === 'state' && e.state.phase === 'playing')));
+      peers[0].send({ type: 'item', item: 'double-play' });
+      await Promise.all(peers.map(peer => peer.waitFor(e => e.type === 'item-used' && e.item === 'double-play')));
+      peers[0].send({ type: 'item', item: 'repair' });
+      const extra = await Promise.all(peers.map(peer => peer.waitFor(e => e.type === 'state' && e.state.turn === 2)));
+      assert.deepEqual(extra, Array(count).fill(extra[0]));
+      assert.equal(extra[0].type, 'state');
+      assert.equal(extra[0].state.activeId, welcome.id);
+      assert.equal(extra[0].state.players[0].items['double-play'], 0);
+      assert.equal(extra[0].state.players[0].extraTurnArmed, false);
+      peers[0].send({ type: 'fire', angle: 80, power: 5 });
+      const next = await Promise.all(peers.map(peer => peer.waitFor(e => e.type === 'state' && e.state.turn === 3)));
+      assert.deepEqual(next, Array(count).fill(next[0]));
+      assert.equal(next[0].type, 'state');
+      assert.equal(next[0].state.activeId, next[0].state.players[1].id);
+      peers.forEach(peer => peer.close());
+    }
     const trainee = new Client();
     const visitor = new Client();
     await Promise.all([trainee.open(), visitor.open()]);
@@ -199,6 +230,13 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     await trainee.waitFor(e => e.type === 'state' && e.state.turn === 3 && e.state.activeId === practiceWelcome.id);
     trainee.send({ type: 'reset-practice' });
     await trainee.waitFor(e => e.type === 'state' && e.state.turn === 1 && e.state.mode === 'practice');
+    trainee.send({ type: 'practice-mobile', mobile: 'aegis' });
+    const selected = await trainee.waitFor(e => e.type === 'state' && e.state.players[0].mobile === 'aegis');
+    assert.equal(selected.type, 'state');
+    assert.equal(selected.state.players[0].hp, 150);
+    assert.equal(selected.state.deadline, 0);
+    trainee.send({ type: 'practice-mobile', mobile: 'invalid' });
+    await trainee.waitFor(e => e.type === 'error' && /Mobile/.test(e.message));
     trainee.close(); visitor.close();
   } finally {
     child.kill();
