@@ -61,11 +61,18 @@ test('lightning adds five damage only when a damaging projectile crosses the lan
   const charged = structuredClone(baseline);
   charged.weather = { kind: 'lightning', x: 640, width: 92, startedTurn: 1, direction: 1 };
   const normalShot = fireShot(normal, 'p1', 45, 45, 1100);
-  const chargedShot = fireShot(charged, 'p1', 45, 45, 1100);
+  const chargedShot = fireShot(charged, 'p1', 45, 45, 1100, false, () => 0.699999);
   assert.equal(chargedShot.weatherCharged, true);
   assert.equal(normal.players[1].hp - charged.players[1].hp, 5);
+  assert.equal(chargedShot.impacts[0].weatherEffect, 'lightning');
   assert.equal(chargedShot.weatherKind, 'lightning');
   assert.ok(normalShot.hitIds?.includes('p2'));
+
+  const resisted = structuredClone(baseline);
+  resisted.weather = { kind: 'lightning', x: 640, width: 92, startedTurn: 1, direction: 1 };
+  const resistedShot = fireShot(resisted, 'p1', 45, 45, 1100, false, () => 0.7);
+  assert.equal(resisted.players[1].hp, normal.players[1].hp);
+  assert.equal(resistedShot.impacts[0].weatherEffect, undefined);
 
   const near = structuredClone(baseline);
   near.weather = { kind: 'lightning', x: 1080, width: 92, startedTurn: 1, direction: 1 };
@@ -73,27 +80,50 @@ test('lightning adds five damage only when a damaging projectile crosses the lan
   assert.equal(near.players[1].hp, normal.players[1].hp);
 });
 
-test('storm changes the trajectory after crossing; rain locks the hit Mobile item turn', () => {
+test('storm has a 70% chance to ignore all DEF without changing trajectory', () => {
   const plain = flatArena('loom');
   const plainImpact = fireShot(structuredClone(plain), 'p1', 45, 45, 1100).impacts[0];
   assert.ok(plainImpact);
+  plain.players[1].x = plainImpact.x;
+  plain.players[1].equipment.hat = 'defense';
+  settlePlayers(plain);
+  const normal = structuredClone(plain);
+  const normalShot = fireShot(normal, 'p1', 45, 45, 1100);
   const storm = structuredClone(plain);
   storm.weather = { kind: 'storm', x: 640, width: 92, startedTurn: 1, direction: 1 };
-  const stormShot = fireShot(storm, 'p1', 45, 45, 1100);
-  assert.ok(stormShot.impacts[0].x > plainImpact.x);
+  const stormShot = fireShot(storm, 'p1', 45, 45, 1100, false, () => 0.699999);
+  assert.equal(stormShot.impacts[0].x, normalShot.impacts[0].x);
+  assert.equal(normal.players[1].hp - storm.players[1].hp, 6);
+  assert.equal(stormShot.impacts[0].weatherEffect, 'storm');
+  const resisted = structuredClone(plain);
+  resisted.weather = storm.weather;
+  fireShot(resisted, 'p1', 45, 45, 1100, false, () => 0.7);
+  assert.equal(resisted.players[1].hp, normal.players[1].hp);
   const missedStorm = structuredClone(plain);
   missedStorm.weather = { kind: 'storm', x: 1080, width: 92, startedTurn: 1, direction: 1 };
-  assert.equal(fireShot(missedStorm, 'p1', 45, 45, 1100).impacts[0].x, plainImpact.x);
+  assert.equal(fireShot(missedStorm, 'p1', 45, 45, 1100).impacts[0].x, normalShot.impacts[0].x);
+  assert.equal(missedStorm.players[1].hp, normal.players[1].hp);
+});
 
+test('rain has a 70% chance to lock items for the target’s next turn', () => {
+  const plain = flatArena('loom');
+  const plainImpact = fireShot(structuredClone(plain), 'p1', 45, 45, 1100).impacts[0];
+  assert.ok(plainImpact);
   const rain = structuredClone(plain);
   rain.players[1].x = plainImpact.x;
   settlePlayers(rain);
   rain.weather = { kind: 'rain', x: 640, width: 92, startedTurn: 1, direction: 1 };
-  const rainShot = fireShot(rain, 'p1', 45, 45, 1100);
+  const dry = structuredClone(rain);
+  const rainShot = fireShot(rain, 'p1', 45, 45, 1100, false, () => 0.699999);
   assert.deepEqual(rainShot.wetIds, ['p2']);
+  assert.equal(rainShot.impacts[0].weatherEffect, 'rain');
   assert.equal(rain.activeId, 'p2');
   assert.equal(rain.players[1].wetOnTurn, rain.turn);
   assert.throws(() => useItem(rain, 'p2', 'double', 1200), /รถเปียก/);
+  const dryShot = fireShot(dry, 'p1', 45, 45, 1100, false, () => 0.7);
+  assert.deepEqual(dryShot.wetIds, []);
+  assert.equal(dry.players[1].wetOnTurn, null);
+  useItem(dry, 'p2', 'double', 1200);
   finishOrAdvance(rain, 1300);
   assert.equal(rain.players[1].wetTurns, 0);
   finishOrAdvance(rain, 1400);
@@ -470,6 +500,18 @@ test('walking is gradual, follows terrain, and is restricted to the active turn'
   assert.equal(state.players[0].facing, 1);
   turnPlayer(state, 'p1');
   assert.equal(state.players[0].facing, -1);
+});
+
+test('walking can pass through another Mobile while retaining the turn distance limit', () => {
+  const state = flatArena('loom');
+  const walker = state.players[0], other = state.players[1];
+  other.x = walker.x + 30;
+  settlePlayers(state);
+  for (let i = 0; i < 10; i++) assert.equal(movePlayer(state, 'p1', 1, 100), true);
+  assert.ok(walker.x > other.x);
+  assert.ok(Math.abs(walker.walkedThisTurn - 88) < 0.001);
+  assert.equal(walker.hp, 100);
+  assert.equal(other.hp, 100);
 });
 
 test('walking has a cumulative per-turn limit and resets on the next turn', () => {

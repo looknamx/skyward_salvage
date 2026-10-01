@@ -73,7 +73,7 @@ export interface GameState {
 }
 
 export interface Point { x: number; y: number }
-export interface Impact extends Point { radius: number; damage: number }
+export interface Impact extends Point { radius: number; damage: number; weatherEffect?: WeatherKind }
 export interface ShotResult { kind: 'damage' | 'teleport'; mobile: MobileKind; shooterId: string; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[]; destroyedDrops?: { id: string; x: number; y: number }[]; weatherCharged?: boolean; weatherKind?: WeatherKind; wetIds?: string[] }
 export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
@@ -487,7 +487,6 @@ export function movePlayer(state: GameState, playerId: string, direction: number
   if (remaining <= 0) return turned;
   const step = Math.min(remaining, MOVE_SPEED * Math.max(0, Math.min(100, elapsedMs)) / 1000);
   const nextX = Math.max(58, Math.min(WIDTH - 58, player.x + direction * step));
-  if (state.players.some(other => other.id !== playerId && other.hp > 0 && Math.abs(other.x - nextX) < 72)) return turned;
   if (Math.abs(nextX - player.x) < 0.001) return turned;
   const moved = Math.abs(nextX - player.x);
   player.stats.distanceMoved += moved;
@@ -580,7 +579,7 @@ function trace(state: GameState, player: PlayerState, angle: number, power: numb
   let crossedWeather = false;
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += (state.wind * windFactor + (crossedWeather && state.weather?.kind === 'storm' ? state.weather.direction * 2 : 0)) * 13 * dt;
+    vx += state.wind * windFactor * 13 * dt;
     vy += 440 * dt;
     const oldX = x, oldY = y;
     x += vx * dt;
@@ -614,7 +613,7 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
   let crossedWeather = false;
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += (state.wind + (crossedWeather && state.weather?.kind === 'storm' ? state.weather.direction * 2 : 0)) * 13 * dt;
+    vx += state.wind * 13 * dt;
     vy += 440 * dt;
     const oldX = x, oldY = y;
     x += vx * dt; y += vy * dt;
@@ -635,7 +634,7 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
       let childCrossedWeather = crossedWeather;
       const path = [...trunk];
       for (let frame = 0; frame < 600; frame++) {
-        childVx += (state.wind + (childCrossedWeather && state.weather?.kind === 'storm' ? state.weather.direction * 2 : 0)) * 13 * dt;
+        childVx += state.wind * 13 * dt;
         childVy += 440 * dt;
         const oldChildX = childX, oldChildY = childY;
         childX += childVx * dt; childY += childVy * dt;
@@ -659,7 +658,7 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
   return [{ path: trunk, hit: null, crossedWeather }];
 }
 
-export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false): ShotResult {
+export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false, weatherRoll: () => number = Math.random): ShotResult {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
   if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < MIN_POWER || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
   const player = state.players.find(p => p.id === playerId)!;
@@ -692,7 +691,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
     if (shot.crossedWeather) { result.weatherCharged = true; result.weatherKind = state.weather?.kind; }
     if (!shot.hit) continue;
     const multiplier = player.doubleArmed ? 2 : 1;
-    const impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + equipmentBonus(player, 'attack') + windDamageBonus(player.mobile, state.wind)) * multiplier };
+    const impact: Impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + equipmentBonus(player, 'attack') + windDamageBonus(player.mobile, state.wind)) * multiplier };
     result.impacts.push(impact);
     for (const target of state.players) {
       if (target.hp <= 0) continue;
@@ -701,12 +700,15 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
       if (distance < impact.radius + 14) {
         const falloff = Math.max(0.35, 1 - distance / (impact.radius + 14));
         const before = target.hp;
-        const weatherBonus = shot.crossedWeather && state.weather?.kind === 'lightning' ? 5 : 0;
-        target.hp = Math.max(0, target.hp - Math.max(0, Math.round(impact.damage * falloff) - MOBILE_INFO[target.mobile].defense - equipmentBonus(target, 'defense') + weatherBonus));
+        const weatherEffect = shot.crossedWeather && state.weather && weatherRoll() < 0.7 ? state.weather.kind : null;
+        const defense = weatherEffect === 'storm' ? 0 : MOBILE_INFO[target.mobile].defense + equipmentBonus(target, 'defense');
+        const weatherBonus = weatherEffect === 'lightning' ? 5 : 0;
+        target.hp = Math.max(0, target.hp - Math.max(0, Math.round(impact.damage * falloff) - defense + weatherBonus));
         const dealt = before - target.hp;
         if (dealt > 0) {
           target.stats.damageTaken += dealt;
-          if (shot.crossedWeather && state.weather?.kind === 'rain') { target.wetTurns = 1; wetIds.add(target.id); }
+          if (weatherEffect) impact.weatherEffect = weatherEffect;
+          if (weatherEffect === 'rain') { target.wetTurns = 1; wetIds.add(target.id); }
           if (target.id !== player.id) { player.stats.damageDealt += dealt; hitIds.add(target.id); }
         }
       }

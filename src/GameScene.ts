@@ -399,7 +399,7 @@ export class GameScene extends Phaser.Scene {
         if (teleport) g.lineStyle(4 * (1 - expansion), 0xb887ff, 1 - expansion).strokeCircle(impact.x, impact.y, impact.radius * expansion);
         else {
           drawImpact(g, mobile, special, impact.x, impact.y, impact.radius, expansion);
-          if (this.effect.data.weatherCharged && this.effect.data.weatherKind) drawWeatherImpact(g, this.effect.data.weatherKind, impact.x, impact.y, expansion);
+          if (impact.weatherEffect) drawWeatherImpact(g, impact.weatherEffect, impact.x, impact.y, expansion);
         }
       }
     }
