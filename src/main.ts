@@ -624,6 +624,7 @@ function render(state: GameState): void {
     const card = document.createElement('div');
     card.className = `player-card${player.id === state.activeId ? ' active' : ''}${player.hp <= 0 ? ' dead' : ''}`;
     card.style.setProperty('--player-color', `#${MOBILE_INFO[player.mobile].color.toString(16).padStart(6, '0')}`);
+    if (state.mode === 'teams') card.style.setProperty('--name-color', player.team === 0 ? '#7de5ed' : '#ffa58f');
     const portrait = document.createElement('img'); portrait.className = 'player-portrait';
     portrait.src = `/assets/characters/${player.mobile}.png`; portrait.alt = MOBILE_INFO[player.mobile].label;
     const portraitWrap = document.createElement('div'); portraitWrap.className = 'player-portrait-wrap'; portraitWrap.append(portrait);

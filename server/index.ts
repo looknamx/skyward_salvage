@@ -3,9 +3,9 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, prepareBotRandomLoadout, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
-import { botShouldRepair, chooseBotMove, chooseBotTeleport, planBotShot } from './bot.ts';
+import { botShouldRepair, chooseBotMove, chooseBotTargetId, chooseBotTeleport, planBotShot } from './bot.ts';
 import type { BotMove } from './bot.ts';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -19,7 +19,7 @@ const sessions = new Map<string, Session>();
 const movement = new Map<string, { playerId: string; direction: -1 | 1 }>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const summarySent = new Set<string>();
-const botTurns = new Map<string, { id: string; turn: number; readyAt: number; stage: 'opening' | 'moving' | 'firing'; move?: BotMove }>();
+const botTurns = new Map<string, { id: string; turn: number; readyAt: number; stage: 'opening' | 'moving' | 'firing'; move?: BotMove; targetId?: string }>();
 const heartbeats = new WeakMap<WebSocket, boolean>();
 const rateLimits = new WeakMap<WebSocket, { started: number; count: number }>();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
@@ -255,9 +255,9 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่เพิ่มบอทได้');
     if (state.players.length >= MAX_PLAYERS) throw new Error('ห้องเต็มแล้ว');
     const number = Array.from({ length: MAX_PLAYERS }, (_, index) => index + 1).find(index => !state.players.some(candidate => candidate.name === `Bot ${index}`))!;
-    const kind = ORDINARY_MOBILES[randomBytes(4).readUInt32LE(0) % ORDINARY_MOBILES.length];
-    const bot = makePlayer(`bot-${randomBytes(12).toString('hex')}`, `Bot ${number}`, kind);
+    const bot = makePlayer(`bot-${randomBytes(12).toString('hex')}`, `Bot ${number}`, 'loom');
     bot.isBot = true;
+    prepareBotRandomLoadout(bot);
     state.players.push(bot);
     rebalanceLobbyTeams(state);
   } else if (action.type === 'remove-bot') {
@@ -436,7 +436,8 @@ setInterval(() => {
             broadcastSummaryIfFinished(state);
             continue;
           }
-          pending.move = chooseBotMove(state, activeBot.id) ?? undefined;
+          pending.targetId = chooseBotTargetId(state, activeBot.id);
+          pending.move = chooseBotMove(state, activeBot.id, pending.targetId) ?? undefined;
           pending.stage = pending.move ? 'moving' : 'firing';
           pending.readyAt = now + (pending.move ? 0 : 300);
         } catch {
@@ -467,7 +468,7 @@ setInterval(() => {
       if (pending.stage === 'firing' && now >= pending.readyAt) {
         botTurns.delete(state.code);
         try {
-          const shotPlan = planBotShot(state, activeBot.id);
+          const shotPlan = planBotShot(state, activeBot.id, Math.random, pending.targetId);
           activeBot.facing = shotPlan.facing;
           const preview = structuredClone(state);
           const previewBot = preview.players.find(player => player.id === activeBot.id)!;

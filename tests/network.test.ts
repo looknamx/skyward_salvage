@@ -276,6 +276,8 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     const botLobby = await botHost.waitFor(e => e.type === 'state' && e.state.players.length === 2 && e.state.botDifficulty === 'hard');
     assert.equal(botLobby.type, 'state');
     assert.equal(botLobby.state.players[1].isBot, true);
+    assert.equal(botLobby.state.players[1].mobile, 'loom');
+    assert.equal(botLobby.state.players[1].randomUsed, true);
     lateGuest.send({ type: 'join', code: botWelcome.code, name: 'Late Guest' });
     const guestWelcome = await lateGuest.waitFor(e => e.type === 'welcome');
     assert.equal(guestWelcome.type, 'welcome');
@@ -301,6 +303,12 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     const teamBattle = await botHost.waitFor(e => e.type === 'state' && e.state.phase === 'playing');
     assert.equal(teamBattle.type, 'state');
     assert.deepEqual(teamBattle.state.players.map(player => player.team), [0, 1, 0, 1]);
+    for (const bot of teamBattle.state.players.filter(player => player.isBot)) {
+      assert.equal(bot.randomUsed, true);
+      assert.deepEqual(bot.randomEquipment, { hat: true, armor: true, flag: true });
+      assert.ok(Object.values(bot.equipment).every(set => set !== null && (set === 'gold' || EQUIPMENT_SETS.includes(set))));
+      assert.equal(bot.hp, maxHpFor(bot));
+    }
     botHost.send({ type: 'fire', angle: 45, power: 50 });
     const botTurn = await botHost.waitFor(e => e.type === 'state' && e.state.turn === 2);
     assert.equal(botTurn.type, 'state');

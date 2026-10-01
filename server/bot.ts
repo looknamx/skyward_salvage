@@ -4,6 +4,18 @@ import type { BotDifficulty, GameState } from '../shared/game.ts';
 export interface BotShot { angle: number; power: number; facing: -1 | 1 }
 export interface BotMove { direction: -1 | 1; targetX: number }
 
+function livingOpponents(state: GameState, botId: string) {
+  const bot = state.players.find(player => player.id === botId);
+  if (!bot) throw new Error('ไม่พบบอท');
+  return state.players.filter(player => player.hp > 0 && player.id !== botId && (state.mode !== 'teams' || player.team !== bot.team));
+}
+
+export function chooseBotTargetId(state: GameState, botId: string, roll: () => number = Math.random): string {
+  const opponents = livingOpponents(state, botId);
+  if (!opponents.length) throw new Error('ไม่พบเป้าหมายของบอท');
+  return opponents[Math.min(opponents.length - 1, Math.floor(roll() * opponents.length))].id;
+}
+
 function groundThickness(state: GameState, x: number): number {
   return hasGroundAt(state, x) ? groundAt(state.terrainBottom, x) - groundAt(state.terrain, x) : 0;
 }
@@ -23,14 +35,15 @@ function routeIsSafe(state: GameState, from: number, to: number): boolean {
   return true;
 }
 
-export function chooseBotMove(state: GameState, botId: string): BotMove | null {
+export function chooseBotMove(state: GameState, botId: string, targetId?: string): BotMove | null {
   const bot = state.players.find(player => player.id === botId);
   if (!bot) return null;
-  const enemies = state.players.filter(player => player.hp > 0 && player.id !== botId && (state.mode !== 'teams' || player.team !== bot.team));
+  const enemies = livingOpponents(state, botId);
   if (!enemies.length) return null;
   const remaining = Math.min(88, TURN_MOVE_LIMIT - bot.walkedThisTurn);
   if (remaining < 12) return null;
-  const nearest = enemies.reduce((best, enemy) => Math.abs(enemy.x - bot.x) < Math.abs(best.x - bot.x) ? enemy : best);
+  const nearest = enemies.find(enemy => enemy.id === targetId)
+    ?? enemies.reduce((best, enemy) => Math.abs(enemy.x - bot.x) < Math.abs(best.x - bot.x) ? enemy : best);
   const currentDanger = botIsInDanger(state, botId);
   const options: { x: number; score: number }[] = [];
   for (const delta of [-remaining, -remaining * 0.65, -remaining * 0.35, 0, remaining * 0.35, remaining * 0.65, remaining]) {
@@ -93,14 +106,14 @@ export function botAimChance(difficulty: BotDifficulty, wind: number): number {
   return Math.max(0.18, calm - Math.abs(wind) * 0.055);
 }
 
-export function planBotShot(state: GameState, botId: string, roll: () => number = Math.random): BotShot {
+export function planBotShot(state: GameState, botId: string, roll: () => number = Math.random, targetId?: string): BotShot {
   const bot = state.players.find(player => player.id === botId);
   if (!bot) throw new Error('ไม่พบบอท');
-  const enemies = state.players.filter(player => player.hp > 0 && player.id !== botId && (state.mode !== 'teams' || player.team !== bot.team));
+  const enemies = livingOpponents(state, botId);
   if (!enemies.length) throw new Error('ไม่พบเป้าหมายของบอท');
-  const target = enemies.reduce((closest, player) => Math.abs(player.x - bot.x) < Math.abs(closest.x - bot.x) ? player : closest);
+  const chosenId = targetId && enemies.some(enemy => enemy.id === targetId) ? targetId : chooseBotTargetId(state, botId, roll);
+  const target = enemies.find(enemy => enemy.id === chosenId)!;
   const facing: -1 | 1 = target.x < bot.x ? -1 : 1;
-  const before = new Map(enemies.map(player => [player.id, player.hp]));
   const allies = state.mode === 'teams' ? state.players.filter(player => player.hp > 0 && player.id !== botId && player.team === bot.team) : [];
   const candidates: { shot: BotShot; score: number; damage: number; distance: number }[] = [];
 
@@ -110,7 +123,7 @@ export function planBotShot(state: GameState, botId: string, roll: () => number 
     let result;
     try { result = fireShot(copy, botId, angle, power, Date.now(), false, () => 1); }
     catch { return; }
-    const damage = enemies.reduce((sum, enemy) => sum + (before.get(enemy.id)! - (copy.players.find(player => player.id === enemy.id)?.hp ?? 0)), 0);
+    const damage = target.hp - (copy.players.find(player => player.id === target.id)?.hp ?? 0);
     const allyDamage = allies.reduce((sum, ally) => sum + (ally.hp - (copy.players.find(player => player.id === ally.id)?.hp ?? 0)), 0);
     const selfDamage = bot.hp - (copy.players.find(player => player.id === botId)?.hp ?? 0);
     const points = result.impacts.length ? result.impacts : result.paths.flatMap(path => path.length ? [path[path.length - 1]] : []);

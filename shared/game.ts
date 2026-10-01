@@ -233,6 +233,17 @@ export function makePlayer(id: string, name: string, mobile: MobileKind): Player
     equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, fallen: false, wetTurns: 0, wetOnTurn: null };
 }
 
+export function prepareBotRandomLoadout(player: PlayerState): void {
+  if (!player.isBot) return;
+  player.mobile = 'loom';
+  player.hp = MOBILE_INFO.loom.maxHp;
+  player.randomUsed = true;
+  for (const slot of EQUIPMENT_SLOTS) {
+    player.equipment[slot] = null;
+    player.randomEquipment[slot] = true;
+  }
+}
+
 export function rebalanceLobbyTeams(state: GameState): void {
   if (state.mode !== 'teams') return;
   const humans = state.players.filter(player => !player.isBot);
@@ -257,6 +268,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   rebalanceLobbyTeams(state);
   if (state.mode === 'teams' && state.players.filter(player => player.team === 0).length !== 2) throw new Error('โหมดทีมต้องมีทีม A และ B ฝั่งละ 2 คน');
   if (state.mode !== 'practice' && state.phase === 'lobby' && state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id))) throw new Error('รอให้ผู้เล่นทุกคนกดพร้อม');
+  for (const player of state.players) prepareBotRandomLoadout(player);
   const maps: MapKind[] = ['cloud-reef', 'clockwork-orchard', 'glass-dunes'];
   state.seed = seed;
   state.map = maps[seed % maps.length];
@@ -297,7 +309,11 @@ export function startRound(state: GameState, seed: number, now: number): void {
 
 export function returnToLobby(state: GameState): void {
   if (state.phase !== 'finished') throw new Error('ยังไม่จบรอบ');
-  state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, player.isBot ? player.mobile : 'loom'), connected: player.connected, isBot: player.isBot, team: state.mode === 'teams' ? player.team : null }));
+  state.players = state.players.map(player => {
+    const fresh = { ...makePlayer(player.id, player.name, 'loom'), connected: player.connected, isBot: player.isBot, team: state.mode === 'teams' ? player.team : null };
+    prepareBotRandomLoadout(fresh);
+    return fresh;
+  });
   state.phase = 'lobby';
   state.terrain = [];
   state.terrainBottom = [];

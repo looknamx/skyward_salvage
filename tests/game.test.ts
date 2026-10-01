@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectItemDrop, crater, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, hasGroundAt, launchElevation, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, MOBILE_HITBOX, MOBILE_INFO, movePlayer, MOVE_SPEED, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, selectPracticeMobile, returnToLobby, settlePlayers, SHOT_DAMAGE_SCALE, startRound as startRoundCore, STEP, TURN_MOVE_LIMIT, turnPlayer, useItem, VOID_GROUND, weatherFor, WIDTH, windChangesOn, windDamageBonus, windFor } from '../shared/game.ts';
 import type { GameState, MobileKind } from '../shared/game.ts';
-import { botAimChance, botIsInDanger, botShouldRepair, chooseBotMove, chooseBotTeleport, planBotShot } from '../server/bot.ts';
+import { botAimChance, botIsInDanger, botShouldRepair, chooseBotMove, chooseBotTargetId, chooseBotTeleport, planBotShot } from '../server/bot.ts';
 
 test('bots auto-ready, retain their seat after rematch, and aim less precisely in strong wind', () => {
   const state = createState('BOT001', 'human', 'Human', 'loom');
@@ -25,7 +25,42 @@ test('bots auto-ready, retain their seat after rematch, and aim less precisely i
   state.phase = 'finished';
   returnToLobby(state);
   assert.equal(state.players[1].isBot, true);
-  assert.equal(state.players[1].mobile, 'borer');
+  assert.equal(state.players[1].mobile, 'loom');
+  assert.equal(state.players[1].randomUsed, true);
+  assert.deepEqual(state.players[1].randomEquipment, { hat: true, armor: true, flag: true });
+  assert.deepEqual(state.players[1].equipment, { hat: null, armor: null, flag: null });
+});
+
+test('bots choose each living opponent with equal probability and exclude teammates', () => {
+  const state = createState('TARGET', 'first', 'First', 'loom');
+  const bot = makePlayer('bot', 'Bot', 'loom');
+  bot.isBot = true;
+  state.players.push(bot, makePlayer('second', 'Second', 'manta'), makePlayer('third', 'Third', 'borer'));
+  const counts = new Map(state.players.filter(player => player.id !== bot.id).map(player => [player.id, 0]));
+  for (let index = 0; index < 300; index++) {
+    const id = chooseBotTargetId(state, bot.id, () => (index + 0.5) / 300);
+    counts.set(id, counts.get(id)! + 1);
+  }
+  assert.deepEqual([...counts.values()], [100, 100, 100]);
+  state.mode = 'teams';
+  bot.team = 0; state.players[0].team = 0;
+  state.players[2].team = 1; state.players[3].team = 1;
+  assert.equal(chooseBotTargetId(state, bot.id, () => 0), 'second');
+  assert.equal(chooseBotTargetId(state, bot.id, () => 0.99), 'third');
+  state.players[2].hp = 0;
+  assert.equal(chooseBotTargetId(state, bot.id, () => 0), 'third');
+});
+
+test('bot aims toward its chosen target on either side of the arena', () => {
+  const state = createState('AIMBOT', 'left', 'Left', 'loom');
+  const bot = makePlayer('bot', 'Bot', 'loom');
+  bot.isBot = true;
+  state.players.push(bot, makePlayer('right', 'Right', 'loom'));
+  state.lobbyReady.push('right');
+  startRoundCore(state, 42, 1000);
+  state.activeId = bot.id;
+  assert.equal(planBotShot(state, bot.id, () => 0, 'left').facing, -1);
+  assert.equal(planBotShot(state, bot.id, () => 0, 'right').facing, 1);
 });
 
 test('bot moves toward distant opponents, repairs critical HP, and teleports away from thin ground', () => {
