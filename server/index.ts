@@ -3,9 +3,10 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
-import { planBotShot } from './bot.ts';
+import { botShouldRepair, chooseBotMove, chooseBotTeleport, planBotShot } from './bot.ts';
+import type { BotMove } from './bot.ts';
 
 const PORT = Number(process.env.PORT || 3001);
 const RECONNECT_GRACE_MS = 45_000;
@@ -18,7 +19,7 @@ const sessions = new Map<string, Session>();
 const movement = new Map<string, { playerId: string; direction: -1 | 1 }>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const summarySent = new Set<string>();
-const botTurns = new Map<string, { id: string; turn: number; readyAt: number }>();
+const botTurns = new Map<string, { id: string; turn: number; readyAt: number; stage: 'opening' | 'moving' | 'firing'; move?: BotMove }>();
 const heartbeats = new WeakMap<WebSocket, boolean>();
 const rateLimits = new WeakMap<WebSocket, { started: number; count: number }>();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
@@ -393,14 +394,84 @@ setInterval(() => {
     if (activeBot) {
       let pending = botTurns.get(state.code);
       if (!pending || pending.id !== activeBot.id || pending.turn !== state.turn) {
-        pending = { id: activeBot.id, turn: state.turn, readyAt: now + 1300 };
+        pending = { id: activeBot.id, turn: state.turn, readyAt: now + 1300, stage: 'opening' };
         botTurns.set(state.code, pending);
       }
-      if (now >= pending.readyAt) {
+      if (now >= pending.readyAt && pending.stage === 'opening') {
+        try {
+          const escape = chooseBotTeleport(state, activeBot.id);
+          if (escape) {
+            activeBot.facing = escape.facing;
+            const oldDrops = [...state.drops];
+            const shot = fireTeleport(state, activeBot.id, escape.angle, escape.power, now);
+            broadcast(state.code, { type: 'item-used', item: 'teleport' });
+            broadcast(state.code, { type: 'shot', shot });
+            const picked = oldDrops.find(drop => !state.drops.some(currentDrop => currentDrop.id === drop.id));
+            if (picked) broadcast(state.code, { type: 'item-picked', item: picked.item, playerId: activeBot.id });
+            botTurns.delete(state.code);
+            stateBroadcast(state);
+            broadcastSummaryIfFinished(state);
+            continue;
+          }
+          if (botShouldRepair(state, activeBot.id)) {
+            useItem(state, activeBot.id, 'repair', now);
+            broadcast(state.code, { type: 'item-used', item: 'repair' });
+            botTurns.delete(state.code);
+            stateBroadcast(state);
+            broadcastSummaryIfFinished(state);
+            continue;
+          }
+          pending.move = chooseBotMove(state, activeBot.id) ?? undefined;
+          pending.stage = pending.move ? 'moving' : 'firing';
+          pending.readyAt = now + (pending.move ? 0 : 300);
+        } catch {
+          botTurns.delete(state.code);
+          finishOrAdvance(state, now);
+          stateBroadcast(state);
+          broadcastSummaryIfFinished(state);
+          continue;
+        }
+      }
+      if (pending.stage === 'moving' && now >= pending.readyAt && pending.move) {
+        const oldX = activeBot.x;
+        const oldDrops = [...state.drops];
+        const moveMs = Math.min(elapsed, Math.abs(pending.move.targetX - activeBot.x) / MOVE_SPEED * 1000);
+        const changed = movePlayer(state, activeBot.id, pending.move.direction, moveMs);
+        if (changed) {
+          const picked = oldDrops.find(drop => !state.drops.some(currentDrop => currentDrop.id === drop.id));
+          if (picked) broadcast(state.code, { type: 'item-picked', item: picked.item, playerId: activeBot.id });
+          stateBroadcast(state);
+          broadcastSummaryIfFinished(state);
+        }
+        if (state.phase !== 'playing' || state.activeId !== activeBot.id) { botTurns.delete(state.code); continue; }
+        if (!changed || Math.abs(activeBot.x - oldX) < 0.01 || Math.abs(activeBot.x - pending.move.targetX) <= 1 || activeBot.walkedThisTurn >= TURN_MOVE_LIMIT) {
+          pending.stage = 'firing';
+          pending.readyAt = now + 350;
+        }
+      }
+      if (pending.stage === 'firing' && now >= pending.readyAt) {
         botTurns.delete(state.code);
         try {
           const shotPlan = planBotShot(state, activeBot.id);
           activeBot.facing = shotPlan.facing;
+          const preview = structuredClone(state);
+          const previewBot = preview.players.find(player => player.id === activeBot.id)!;
+          previewBot.facing = shotPlan.facing;
+          fireShot(preview, activeBot.id, shotPlan.angle, shotPlan.power, now, false, () => 1);
+          const enemyDamage = state.players.filter(player => player.hp > 0 && player.id !== activeBot.id && (state.mode !== 'teams' || player.team !== activeBot.team))
+            .reduce((sum, player) => sum + player.hp - (preview.players.find(candidate => candidate.id === player.id)?.hp ?? 0), 0);
+          const allyDamage = state.mode === 'teams' ? state.players.filter(player => player.hp > 0 && player.id !== activeBot.id && player.team === activeBot.team)
+            .reduce((sum, player) => sum + player.hp - (preview.players.find(candidate => candidate.id === player.id)?.hp ?? 0), 0) : 0;
+          if (enemyDamage > 0 && allyDamage === 0 && activeBot.wetOnTurn !== state.turn) {
+            if (activeBot.items['double-play'] && !activeBot.extraTurnArmed && activeBot.hp > 35) {
+              useItem(state, activeBot.id, 'double-play', now);
+              broadcast(state.code, { type: 'item-used', item: 'double-play' });
+            }
+            if (activeBot.items.double && !activeBot.doubleArmed) {
+              useItem(state, activeBot.id, 'double', now);
+              broadcast(state.code, { type: 'item-used', item: 'double' });
+            }
+          }
           const hpBefore = new Map(state.players.map(target => [target.id, target.hp]));
           const shot = fireShot(state, activeBot.id, shotPlan.angle, shotPlan.power, now);
           broadcast(state.code, { type: 'shot', shot });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { collectItemDrop, crater, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, hasGroundAt, launchElevation, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, MOBILE_HITBOX, MOBILE_INFO, movePlayer, MOVE_SPEED, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, selectPracticeMobile, returnToLobby, settlePlayers, SHOT_DAMAGE_SCALE, startRound as startRoundCore, STEP, TURN_MOVE_LIMIT, turnPlayer, useItem, VOID_GROUND, weatherFor, WIDTH, windChangesOn, windDamageBonus, windFor } from '../shared/game.ts';
 import type { GameState, MobileKind } from '../shared/game.ts';
-import { botAimChance, planBotShot } from '../server/bot.ts';
+import { botAimChance, botIsInDanger, botShouldRepair, chooseBotMove, chooseBotTeleport, planBotShot } from '../server/bot.ts';
 
 test('bots auto-ready, retain their seat after rematch, and aim less precisely in strong wind', () => {
   const state = createState('BOT001', 'human', 'Human', 'loom');
@@ -26,6 +26,46 @@ test('bots auto-ready, retain their seat after rematch, and aim less precisely i
   returnToLobby(state);
   assert.equal(state.players[1].isBot, true);
   assert.equal(state.players[1].mobile, 'borer');
+});
+
+test('bot moves toward distant opponents, repairs critical HP, and teleports away from thin ground', () => {
+  const state = createState('BOTAI1', 'human', 'Human', 'loom');
+  const bot = makePlayer('bot-1', 'Bot 1', 'borer');
+  bot.isBot = true;
+  state.players.push(bot);
+  startRoundCore(state, 47, 1000);
+  state.activeId = bot.id;
+  state.wind = 0;
+  state.weather = null;
+  state.terrain.fill(500);
+  state.terrainBottom.fill(650);
+  settlePlayers(state);
+  const move = chooseBotMove(state, bot.id);
+  assert.ok(move && move.direction === -1 && move.targetX < bot.x);
+  const walking = structuredClone(state);
+  for (let step = 0; step < 12; step++) movePlayer(walking, bot.id, move.direction, 100);
+  assert.ok(walking.players[1].x < bot.x);
+  assert.ok(walking.players[1].hp > 0);
+  assert.equal(botShouldRepair(state, bot.id), false);
+  bot.hp = 30;
+  assert.equal(botShouldRepair(state, bot.id), true);
+  const repairing = structuredClone(state);
+  useItem(repairing, bot.id, 'repair', 1100);
+  assert.equal(repairing.players[1].hp, 58);
+  assert.equal(repairing.players[1].items.repair, 0);
+  bot.wetOnTurn = state.turn;
+  assert.equal(botShouldRepair(state, bot.id), false);
+  bot.wetOnTurn = null;
+  for (let x = 1030; x <= 1110; x += STEP) state.terrainBottom[Math.round(x / STEP)] = 530;
+  assert.equal(botIsInDanger(state, bot.id), true);
+  const escape = chooseBotTeleport(state, bot.id);
+  assert.ok(escape);
+  const copy = structuredClone(state);
+  copy.players[1].facing = escape.facing;
+  fireTeleport(copy, bot.id, escape.angle, escape.power, 1100);
+  assert.ok(Math.abs(copy.players[1].x - bot.x) >= 90);
+  assert.equal(botIsInDanger(copy, bot.id), false);
+  assert.equal(copy.players[1].items.teleport, 0);
 });
 
 function startRound(state: GameState, seed: number, now: number): void {
@@ -649,7 +689,7 @@ test('wind only changes on seeded 20 percent rolls', () => {
   assert.ok(changed >= 150 && changed <= 250, `observed ${changed}/999 wind changes`);
 });
 
-test('2v2 assigns teams, prevents friendly fire, and supports a same-room round reset', () => {
+test('2v2 assigns teams, allows friendly fire, and supports a same-room round reset', () => {
   const state = createState('TEAM42', 'p1', 'One', 'loom');
   for (let i = 2; i <= 4; i++) state.players.push(makePlayer(`p${i}`, `Player ${i}`, 'borer'));
   state.mode = 'teams';
@@ -664,7 +704,7 @@ test('2v2 assigns teams, prevents friendly fire, and supports a same-room round 
   }
   fireShot(state, 'p1', 45, 45, 1100);
   assert.ok(state.players[1].hp < 100);
-  assert.equal(state.players[2].hp, 100);
+  assert.ok(state.players[2].hp < 100);
   assert.equal(state.players[0].stats.hits, 1);
   assert.ok(state.players[0].stats.damageDealt > 0);
   state.phase = 'finished';

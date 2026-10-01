@@ -556,7 +556,7 @@ function projectileCollision(state: GameState, shooter: PlayerState, from: Point
   let earliest = 2;
   let targetId: string | undefined;
   for (const target of state.players) {
-    if (target.hp <= 0 || (!includeShooter && target.id === shooter.id) || (state.mode === 'teams' && target.team === shooter.team)) continue;
+    if (target.hp <= 0 || (!includeShooter && target.id === shooter.id)) continue;
     const centerY = target.y + MOBILE_HITBOX.centerYOffset;
     const t = segmentBoxEntry(from, to, target.x - MOBILE_HITBOX.halfWidth, centerY - MOBILE_HITBOX.halfHeight,
       target.x + MOBILE_HITBOX.halfWidth, centerY + MOBILE_HITBOX.halfHeight);
@@ -708,7 +708,6 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
     result.impacts.push(impact);
     for (const target of state.players) {
       if (target.hp <= 0) continue;
-      if (state.mode === 'teams' && target.team === player.team) continue;
       const distance = shot.hitTargetId === target.id ? 0 : Math.hypot(target.x - impact.x, target.y - impact.y);
       if (distance < impact.radius + 14) {
         const falloff = Math.max(0.35, 1 - distance / (impact.radius + 14));
@@ -739,7 +738,7 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
     settlePlayers(state);
     for (const target of state.players) {
       const remainingHp = beforeFall.get(target.id) ?? 0;
-      if (remainingHp > 0 && target.fallen && target.id !== player.id && !(state.mode === 'teams' && target.team === player.team)) {
+      if (remainingHp > 0 && target.fallen && target.id !== player.id) {
         player.stats.damageDealt += remainingHp;
         hitIds.add(target.id);
       }
