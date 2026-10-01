@@ -6,6 +6,8 @@ export const MAX_PLAYERS = 4;
 export const MOVE_SPEED = 88;
 export const TURN_MOVE_LIMIT = 175;
 export const MIN_POWER = 5;
+export const TEAM_START_POINTS = 3;
+export const RESPAWN_TURNS = 4;
 export const SHOT_DAMAGE_SCALE = 0.5;
 export const VOID_GROUND = HEIGHT + 160;
 
@@ -49,6 +51,7 @@ export interface PlayerState {
   fallen: boolean;
   wetTurns: number;
   wetOnTurn: number | null;
+  respawnOnTurn: number | null;
 }
 
 export interface GameState {
@@ -67,6 +70,8 @@ export interface GameState {
   winnerId: string | null;
   message: string;
   mode: MatchMode;
+  teamScoreMode: boolean;
+  teamPoints: [number, number];
   botDifficulty: BotDifficulty;
   meteor: MeteorEvent | null;
   weather: WeatherState | null;
@@ -79,7 +84,7 @@ export interface GameState {
 export interface Point { x: number; y: number }
 export interface Impact extends Point { radius: number; damage: number; weatherEffect?: WeatherKind }
 export interface ShotResult { kind: 'damage' | 'teleport'; mobile: MobileKind; shooterId: string; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[]; destroyedDrops?: { id: string; x: number; y: number }[]; weatherCharged?: boolean; weatherKind?: WeatherKind; wetIds?: string[] }
-export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
+export interface MatchSummary { code: string; mode: MatchMode; teamScoreMode: boolean; teamPoints: [number, number]; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
 export type ClientAction =
   | { type: 'create'; name: string; mobile?: OrdinaryMobileKind }
@@ -93,6 +98,7 @@ export type ClientAction =
   | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
   | { type: 'set-mode'; mode: MatchMode }
+  | { type: 'set-team-score'; enabled: boolean }
   | { type: 'set-team'; team: Team }
   | { type: 'add-bot' }
   | { type: 'remove-bot' }
@@ -222,7 +228,7 @@ export function createState(code: string, hostId: string, name: string, mobile: 
     code, phase: 'lobby', hostId,
     players: [makePlayer(hostId, name, mobile)], terrain: [], terrainBottom: [], map: 'cloud-reef',
     seed: 0, wind: 0, turn: 0, activeId: null, deadline: 0, winnerId: null,
-    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', botDifficulty: 'normal', meteor: null, weather: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
+    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', teamScoreMode: false, teamPoints: [TEAM_START_POINTS, TEAM_START_POINTS], botDifficulty: 'normal', meteor: null, weather: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
   };
 }
 
@@ -230,7 +236,7 @@ export function makePlayer(id: string, name: string, mobile: MobileKind): Player
   return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
     items: { double: 1, repair: 1, teleport: 1, 'double-play': 1 }, doubleArmed: false, extraTurnArmed: false, connected: true, isBot: false, facing: 1,
     team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false,
-    equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, fallen: false, wetTurns: 0, wetOnTurn: null };
+    equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, fallen: false, wetTurns: 0, wetOnTurn: null, respawnOnTurn: null };
 }
 
 export function prepareBotRandomLoadout(player: PlayerState): void {
@@ -267,6 +273,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   if (state.mode === 'teams' && state.players.length !== 4) throw new Error('โหมดทีมต้องมีผู้เล่น 4 คน');
   rebalanceLobbyTeams(state);
   if (state.mode === 'teams' && state.players.filter(player => player.team === 0).length !== 2) throw new Error('โหมดทีมต้องมีทีม A และ B ฝั่งละ 2 คน');
+  if (state.teamScoreMode && state.mode !== 'teams') throw new Error('โหมดแต้มใช้ได้เฉพาะทีม 2v2');
   if (state.mode !== 'practice' && state.phase === 'lobby' && state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id))) throw new Error('รอให้ผู้เล่นทุกคนกดพร้อม');
   for (const player of state.players) prepareBotRandomLoadout(player);
   const maps: MapKind[] = ['cloud-reef', 'clockwork-orchard', 'glass-dunes'];
@@ -282,6 +289,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
     player.fallen = false;
     player.wetTurns = 0;
     player.wetOnTurn = null;
+    player.respawnOnTurn = null;
     player.items = { double: 1, repair: 1, teleport: 1, 'double-play': 1 };
     player.doubleArmed = false;
     player.extraTurnArmed = false;
@@ -300,6 +308,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.deadline = state.mode === 'practice' ? 0 : now + TURN_MS;
   state.winnerId = null;
   state.winnerTeam = null;
+  state.teamPoints = [TEAM_START_POINTS, TEAM_START_POINTS];
   state.rematchReady = [];
   state.lobbyReady = [];
   state.drops = [];
@@ -325,6 +334,7 @@ export function returnToLobby(state: GameState): void {
   state.deadline = 0;
   state.winnerId = null;
   state.winnerTeam = null;
+  state.teamPoints = [TEAM_START_POINTS, TEAM_START_POINTS];
   state.rematchReady = [];
   state.lobbyReady = [];
   state.drops = [];
@@ -387,8 +397,60 @@ export function dropMeteor(state: GameState, x: number): MeteorEvent {
   return impact;
 }
 
-function finishIfDecided(state: GameState): boolean {
+function recordTeamDeaths(state: GameState): void {
+  if (state.mode !== 'teams' || !state.teamScoreMode) return;
+  for (const player of state.players) {
+    if (player.hp > 0 || player.respawnOnTurn !== null || player.team === null) continue;
+    state.teamPoints[player.team] = Math.max(0, state.teamPoints[player.team] - 1);
+    player.respawnOnTurn = state.turn + RESPAWN_TURNS;
+  }
+}
+
+function respawnTeamPlayers(state: GameState): void {
+  if (state.mode !== 'teams' || !state.teamScoreMode) return;
+  for (const [index, player] of state.players.entries()) {
+    if (player.hp > 0 || player.respawnOnTurn === null || player.respawnOnTurn > state.turn || !player.connected || player.team === null || state.teamPoints[player.team] === 0) continue;
+    const safe: number[] = [];
+    const fallback: number[] = [];
+    const crowded: number[] = [];
+    for (let x = 70; x <= WIDTH - 70; x += 10) {
+      if (!hasGroundAt(state, x)) continue;
+      crowded.push(x);
+      if (state.players.some(other => other.hp > 0 && Math.abs(other.x - x) < 80)) continue;
+      fallback.push(x);
+      if ([-24, 0, 24].every(offset => hasGroundAt(state, x + offset) && groundAt(state.terrainBottom, x + offset) - groundAt(state.terrain, x + offset) >= 35)) safe.push(x);
+    }
+    const locations = safe.length ? safe : fallback.length ? fallback : crowded.length ? crowded : state.players.filter(other => other.hp > 0 && hasGroundAt(state, other.x)).map(other => other.x);
+    if (!locations.length) continue;
+    const roll = random(state.seed ^ Math.imul(state.turn, 0x61c88647) ^ Math.imul(index + 1, 0x45d9f3b))();
+    player.x = locations[Math.floor(roll * locations.length)];
+    player.y = groundAt(state.terrain, player.x) - 13;
+    player.hp = maxHpFor(player);
+    player.fallen = false;
+    player.respawnOnTurn = null;
+    player.wetTurns = 0;
+    player.wetOnTurn = null;
+    player.doubleArmed = false;
+    player.extraTurnArmed = false;
+    player.walkedThisTurn = 0;
+    player.facing = player.x > WIDTH / 2 ? -1 : 1;
+  }
+}
+
+export function finishIfDecided(state: GameState): boolean {
+  recordTeamDeaths(state);
   const alive = state.players.filter(p => p.hp > 0);
+  if (state.mode === 'teams' && state.teamScoreMode) {
+    const lost = ([0, 1] as const).map(team => state.teamPoints[team] === 0 || !alive.some(player => player.team === team));
+    if (!lost.some(Boolean)) return false;
+    state.phase = 'finished';
+    state.activeId = null;
+    state.deadline = 0;
+    state.winnerId = null;
+    state.winnerTeam = lost[0] === lost[1] ? null : lost[0] ? 1 : 0;
+    state.message = state.winnerTeam === null ? 'เสมอ!' : `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!`;
+    return true;
+  }
   const livingTeams = new Set(alive.map(player => player.team));
   if (!(state.mode === 'teams' ? livingTeams.size <= 1 : alive.length <= 1)) return false;
   state.phase = 'finished';
@@ -449,6 +511,7 @@ export function finishOrAdvance(state: GameState, now: number): void {
     dropMeteor(state, Math.round(x));
   }
   if (finishIfDecided(state)) return;
+  respawnTeamPlayers(state);
   let nextId: string | null = extraTurn && previousPlayer.hp > 0 && previousPlayer.connected ? previousPlayer.id : null;
   for (let offset = 1; !nextId && offset <= state.players.length; offset++) {
     const candidate = state.players[(oldIndex + offset) % state.players.length];

@@ -51,6 +51,79 @@ test('bots choose each living opponent with equal probability and exclude teamma
   assert.equal(chooseBotTargetId(state, bot.id, () => 0), 'third');
 });
 
+function scoreBattle() {
+  const state = createState('SCORE3', 'a1', 'A1', 'loom');
+  state.players.push(makePlayer('b1', 'B1', 'loom'), makePlayer('a2', 'A2', 'loom'), makePlayer('b2', 'B2', 'loom'));
+  state.mode = 'teams';
+  state.teamScoreMode = true;
+  state.players[0].team = 0;
+  state.players[1].team = 1;
+  state.players[2].team = 0;
+  state.players[3].team = 1;
+  state.lobbyReady = ['b1', 'a2', 'b2'];
+  startRoundCore(state, 42, 1000);
+  return state;
+}
+
+test('team score mode charges one point per death and respawns after four global turns', () => {
+  const state = scoreBattle();
+  const victim = state.players[0];
+  victim.hp = 0;
+  finishOrAdvance(state, 2000);
+  assert.deepEqual(state.teamPoints, [2, 3]);
+  assert.equal(victim.respawnOnTurn, 5);
+  assert.equal(state.phase, 'playing');
+  assert.equal(state.turn, 2);
+  for (const turn of [3, 4]) {
+    finishOrAdvance(state, 2000 + turn * 100);
+    assert.equal(state.turn, turn);
+    assert.equal(victim.hp, 0);
+    assert.deepEqual(state.teamPoints, [2, 3]);
+  }
+  finishOrAdvance(state, 2500);
+  assert.equal(state.turn, 5);
+  assert.equal(victim.hp, maxHpFor(victim));
+  assert.equal(victim.respawnOnTurn, null);
+  assert.equal(hasGroundAt(state, victim.x), true);
+  assert.equal(victim.y, groundAt(state.terrain, victim.x) - 13);
+  assert.deepEqual(state.teamPoints, [2, 3]);
+});
+
+test('team score mode ends when points reach zero or all teammates leave the map', () => {
+  const noPoints = scoreBattle();
+  noPoints.teamPoints[0] = 1;
+  noPoints.players[0].hp = 0;
+  finishOrAdvance(noPoints, 2000);
+  assert.deepEqual(noPoints.teamPoints, [0, 3]);
+  assert.equal(noPoints.phase, 'finished');
+  assert.equal(noPoints.winnerTeam, 1);
+  returnToLobby(noPoints);
+  assert.equal(noPoints.teamScoreMode, true);
+  assert.deepEqual(noPoints.teamPoints, [3, 3]);
+  assert.ok(noPoints.players.every(player => player.respawnOnTurn === null));
+
+  const noMobiles = scoreBattle();
+  noMobiles.players[0].hp = 0;
+  noMobiles.players[2].hp = 0;
+  finishOrAdvance(noMobiles, 2000);
+  assert.deepEqual(noMobiles.teamPoints, [1, 3]);
+  assert.equal(noMobiles.phase, 'finished');
+  assert.equal(noMobiles.winnerTeam, 1);
+
+  const draw = scoreBattle();
+  for (const player of draw.players) player.hp = 0;
+  finishOrAdvance(draw, 2000);
+  assert.equal(draw.phase, 'finished');
+  assert.equal(draw.winnerTeam, null);
+});
+
+test('team score mode cannot start outside 2v2', () => {
+  const state = createState('SOLOSC', 'p1', 'One', 'loom');
+  state.players.push(makePlayer('p2', 'Two', 'loom'));
+  state.teamScoreMode = true;
+  assert.throws(() => startRoundCore(state, 42, 1000), /เฉพาะทีม/);
+});
+
 test('bot aims toward its chosen target on either side of the arena', () => {
   const state = createState('AIMBOT', 'left', 'Left', 'loom');
   const bot = makePlayer('bot', 'Bot', 'loom');

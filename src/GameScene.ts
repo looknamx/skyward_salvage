@@ -36,6 +36,7 @@ export class GameScene extends Phaser.Scene {
   private effects!: Phaser.GameObjects.Graphics;
   private mobiles = new Map<string, Phaser.GameObjects.Image>();
   private falling = new Set<string>();
+  private respawning = new Map<string, number>();
   private gear = new Map<string, Partial<Record<EquipmentSlot, Phaser.GameObjects.Image>>>();
   private labels = new Map<string, Phaser.GameObjects.Text>();
   private drops = new Map<string, { image: Phaser.GameObjects.Image; started: number }>();
@@ -85,6 +86,7 @@ export class GameScene extends Phaser.Scene {
         id: oldPlayer.id, mobile: oldPlayer.mobile, x: oldPlayer.x, y: oldPlayer.y - 28,
         fallen: current.fallen, started: this.time.now,
       });
+      if (oldPlayer.hp <= 0 && current && current.hp > 0 && state.teamScoreMode) this.respawning.set(current.id, this.time.now);
     }
     this.state = state;
     if (!this.backdrop) return;
@@ -101,6 +103,7 @@ export class GameScene extends Phaser.Scene {
       for (const entry of this.drops.values()) { this.tweens.killTweensOf(entry.image); entry.image.destroy(); }
       this.mobiles.clear();
       this.falling.clear();
+      this.respawning.clear();
       this.gear.clear();
       this.labels.clear();
       this.drops.clear();
@@ -322,7 +325,16 @@ export class GameScene extends Phaser.Scene {
       const targetY = player.y - 28;
       const jump = Math.abs(player.x - image.x) > 140 || Math.abs(targetY - image.y) > 100;
       image.x = jump ? player.x : Phaser.Math.Linear(image.x, player.x, .38);
-      image.y = jump ? targetY : Phaser.Math.Linear(image.y, targetY, .38);
+      const spawnStarted = this.respawning.get(player.id);
+      if (spawnStarted !== undefined) {
+        const progress = Math.min(1, (this.time.now - spawnStarted) / 900);
+        image.y = -95 + (targetY + 95) * progress * progress;
+        if (progress >= 1) this.respawning.delete(player.id);
+        else if (progress > .7) {
+          this.effects.lineStyle(3, 0x9df5e8, (progress - .7) / .3);
+          this.effects.strokeEllipse(player.x, player.y + 10, 78 + progress * 34, 10 + progress * 10);
+        }
+      } else image.y = jump ? targetY : Phaser.Math.Linear(image.y, targetY, .38);
       image.setFlipX(player.facing < 0);
       const tilt = vehicleTilt(state.terrain, player.x);
       image.rotation = jump ? tilt : Phaser.Math.Linear(image.rotation, tilt, .38);

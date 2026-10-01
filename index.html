@@ -42,6 +42,7 @@
             <label id="team-select-wrap" class="team-select hidden" for="team-select">ทีมของคุณ <select id="team-select"><option value="0">ทีม A</option><option value="1">ทีม B</option></select></label>
             <div class="bot-controls"><span>บอทเติมห้อง</span><div class="bot-controls-row"><button id="remove-bot" type="button" aria-label="ลดจำนวนบอท">−</button><strong id="bot-count">0</strong><button id="add-bot" type="button" aria-label="เพิ่มจำนวนบอท">+</button><label for="bot-difficulty">ระดับ <select id="bot-difficulty"><option value="easy">ง่าย</option><option value="normal">ปกติ</option><option value="hard">ยาก</option></select></label></div></div>
           </div>
+          <label id="team-score-wrap" class="team-score-option hidden" for="team-score-toggle"><input id="team-score-toggle" type="checkbox" /><span><strong>โหมดแต้มการแข่งขัน · ทีมละ 3 แต้ม</strong><small>ตายเสีย 1 แต้ม · กลับมาหลัง 4 เทิร์น · หมดแต้มหรือทั้งทีมออกจากสนามจะแพ้</small></span></label>
           <div id="slot-machine" class="slot-machine" aria-label="ตู้เลือก Mobile และชุดสวมใส่">
             <div class="slot-machine-heading"><strong>ตู้ปรับแต่ง Mobile</strong><span>คลิกหรือปัดขึ้นลงเพื่อหมุนแต่ละช่อง</span></div>
             <div id="slot-reels" class="slot-reels"></div>
@@ -56,6 +57,7 @@
       </section>
       <div id="hud" class="hidden">
         <div id="player-strip"></div>
+        <div id="team-score-hud" class="team-score-hud hidden" aria-label="แต้มทีม"><span>ทีม A <b id="team-a-points">3</b></span><span>ทีม B <b id="team-b-points">3</b></span></div>
         <div class="weather-panel"><span id="wind" class="status-chip">WIND → 0</span><span id="turn" class="status-chip">TURN 01</span><div id="countdown" class="countdown" role="timer" aria-label="เวลาที่เหลือ"><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="timer-track" cx="50" cy="50" r="44"/><circle class="timer-ring" cx="50" cy="50" r="44" pathLength="100"/></svg><div class="timer-value"><strong id="timer">30</strong><small id="timer-unit">s</small></div></div><button id="settings-toggle" class="settings-toggle" type="button" aria-label="ตั้งค่า" aria-controls="settings-popup" aria-expanded="false" title="ตั้งค่า"><img class="control-icon" src="/assets/ui/settings-icon.png" alt="" draggable="false" /></button></div>
         <div id="settings-popup" class="settings-popup hidden" role="dialog" aria-labelledby="settings-title">
           <div class="settings-heading"><strong id="settings-title">ตั้งค่า</strong><button id="settings-close" type="button" aria-label="ปิดการตั้งค่า">×</button></div>

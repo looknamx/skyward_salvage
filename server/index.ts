@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, prepareBotRandomLoadout, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishIfDecided, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, prepareBotRandomLoadout, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import { botShouldRepair, chooseBotMove, chooseBotTargetId, chooseBotTeleport, planBotShot } from './bot.ts';
 import type { BotMove } from './bot.ts';
@@ -56,7 +56,7 @@ function welcome(ws: WebSocket, session: Session, resumed: boolean): void {
 }
 function makeSummary(state: GameState): MatchSummary {
   return {
-    code: state.code, mode: state.mode, winnerId: state.winnerId, winnerTeam: state.winnerTeam,
+    code: state.code, mode: state.mode, teamScoreMode: state.teamScoreMode, teamPoints: [state.teamPoints[0], state.teamPoints[1]], winnerId: state.winnerId, winnerTeam: state.winnerTeam,
     players: state.players.map(player => ({ id: player.id, name: player.name, mobile: player.mobile, team: player.team, stats: { ...player.stats } })),
   };
 }
@@ -114,9 +114,7 @@ function expireSession(session: Session): void {
   sessions.delete(session.token);
   if (state.phase === 'playing') {
     player.hp = 0;
-    const living = state.players.filter(candidate => candidate.hp > 0);
-    const teamCount = new Set(living.map(candidate => candidate.team)).size;
-    if (state.activeId === player.id || (state.mode === 'teams' ? teamCount <= 1 : living.length <= 1)) finishOrAdvance(state, Date.now());
+    if (!finishIfDecided(state) && state.activeId === player.id) finishOrAdvance(state, Date.now());
   } else {
     state.players = state.players.filter(candidate => candidate.id !== player.id);
     rebalanceLobbyTeams(state);
@@ -242,9 +240,15 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เลือกโหมดได้');
     if (action.mode !== 'ffa' && action.mode !== 'teams') throw new Error('โหมดไม่ถูกต้อง');
     state.mode = action.mode;
+    if (state.mode !== 'teams') state.teamScoreMode = false;
     state.lobbyReady = [];
     if (state.mode === 'ffa') state.players.forEach(entrant => { entrant.team = null; });
     rebalanceLobbyTeams(state);
+  } else if (action.type === 'set-team-score') {
+    if (state.phase !== 'lobby' || state.mode !== 'teams' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเลือกโหมดแต้มได้เฉพาะทีม 2v2');
+    if (typeof action.enabled !== 'boolean') throw new Error('โหมดแต้มไม่ถูกต้อง');
+    state.teamScoreMode = action.enabled;
+    state.lobbyReady = [];
   } else if (action.type === 'set-team') {
     if (state.phase !== 'lobby' || state.mode !== 'teams') throw new Error('เลือกทีมได้ในห้องเตรียมเกมโหมดทีมเท่านั้น');
     if (action.team !== 0 && action.team !== 1) throw new Error('ทีมไม่ถูกต้อง');

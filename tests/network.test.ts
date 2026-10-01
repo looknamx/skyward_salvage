@@ -289,6 +289,10 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     botHost.send({ type: 'set-mode', mode: 'teams' });
     botHost.send({ type: 'add-bot' });
     await botHost.waitFor(e => e.type === 'state' && e.state.players.length === 4 && e.state.mode === 'teams');
+    botHost.send({ type: 'set-team-score', enabled: true });
+    const scoreLobby = await botHost.waitFor(e => e.type === 'state' && e.state.teamScoreMode);
+    assert.equal(scoreLobby.type, 'state');
+    assert.deepEqual(scoreLobby.state.teamPoints, [3, 3]);
     botHost.send({ type: 'set-team', team: 1 });
     const swappedBots = await botHost.waitFor(e => e.type === 'state' && e.state.players[0].team === 1);
     assert.equal(swappedBots.type, 'state');
@@ -302,6 +306,8 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     botHost.send({ type: 'start' });
     const teamBattle = await botHost.waitFor(e => e.type === 'state' && e.state.phase === 'playing');
     assert.equal(teamBattle.type, 'state');
+    assert.equal(teamBattle.state.teamScoreMode, true);
+    assert.deepEqual(teamBattle.state.teamPoints, [3, 3]);
     assert.deepEqual(teamBattle.state.players.map(player => player.team), [0, 1, 0, 1]);
     for (const bot of teamBattle.state.players.filter(player => player.isBot)) {
       assert.equal(bot.randomUsed, true);

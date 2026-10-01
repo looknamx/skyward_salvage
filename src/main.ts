@@ -238,6 +238,7 @@ $('practice').addEventListener('click', () => {
 $('start').addEventListener('click', () => send({ type: 'start' }));
 $('lobby-ready').addEventListener('click', () => send({ type: 'lobby-ready', ready: !gameState?.lobbyReady.includes(playerId) }));
 ($('match-mode') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-mode', mode: (event.target as HTMLSelectElement).value as GameState['mode'] }));
+($('team-score-toggle') as HTMLInputElement).addEventListener('change', event => send({ type: 'set-team-score', enabled: (event.target as HTMLInputElement).checked }));
 ($('team-select') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-team', team: Number((event.target as HTMLSelectElement).value) as 0 | 1 }));
 $('add-bot').addEventListener('click', () => send({ type: 'add-bot' }));
 $('remove-bot').addEventListener('click', () => send({ type: 'remove-bot' }));
@@ -582,6 +583,10 @@ function render(state: GameState): void {
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
     $('lobby-options').classList.toggle('team-mode', state.mode === 'teams');
+    $('team-score-wrap').classList.toggle('hidden', state.mode !== 'teams');
+    const scoreToggle = $('team-score-toggle') as HTMLInputElement;
+    scoreToggle.checked = state.teamScoreMode;
+    scoreToggle.disabled = !isHost;
     $('team-select-wrap').classList.toggle('hidden', state.mode !== 'teams');
     const teamSelect = $('team-select') as HTMLSelectElement;
     teamSelect.value = String(me?.team ?? 0);
@@ -617,9 +622,12 @@ function render(state: GameState): void {
     ($('start') as HTMLButtonElement).disabled = !isHost || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && (state.players.length !== 4 || teamA !== 2 || teamB !== 2)) || state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id));
     ($('lobby-ready') as HTMLButtonElement).disabled = !me?.connected;
     $('lobby-ready').textContent = isReady ? 'ยกเลิกพร้อม' : 'พร้อมเล่น';
-    $('lobby-status').textContent = `${state.players.length}/4 ช่อง · ผู้เล่น ${state.players.filter(player => !player.isBot).length} · บอท ${botCount} · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - botCount - 1)}${state.mode === 'teams' ? ` · ทีม A ${teamA} / B ${teamB}${state.players.length === 4 && teamA !== 2 ? ' · ต้องฝั่งละ 2 คัน' : ''}` : ''}`;
+    $('lobby-status').textContent = `${state.players.length}/4 ช่อง · ผู้เล่น ${state.players.filter(player => !player.isBot).length} · บอท ${botCount} · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - botCount - 1)}${state.mode === 'teams' ? ` · ทีม A ${teamA} / B ${teamB}${state.players.length === 4 && teamA !== 2 ? ' · ต้องฝั่งละ 2 คัน' : ''}${state.teamScoreMode ? ' · แข่งแต้ม 3' : ''}` : ''}`;
     return;
   }
+  $('team-score-hud').classList.toggle('hidden', state.mode !== 'teams' || !state.teamScoreMode);
+  $('team-a-points').textContent = String(state.teamPoints[0]);
+  $('team-b-points').textContent = String(state.teamPoints[1]);
   $('player-strip').replaceChildren(...state.players.map(player => {
     const card = document.createElement('div');
     card.className = `player-card${player.id === state.activeId ? ' active' : ''}${player.hp <= 0 ? ' dead' : ''}`;
@@ -639,7 +647,9 @@ function render(state: GameState): void {
     const head = document.createElement('div'); head.className = 'player-head';
     const name = document.createElement('b'); name.textContent = player.name + (state.mode === 'teams' ? ` · ${player.team === 0 ? 'A' : 'B'}` : '');
     const maxHp = maxHpFor(player);
-    const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/${maxHp}${player.wetTurns ? ' · เปียก' : ''}`;
+    const meta = document.createElement('small'); meta.textContent = player.hp <= 0 && state.teamScoreMode && player.respawnOnTurn !== null && state.phase === 'playing'
+      ? `เกิดใหม่อีก ${Math.max(0, player.respawnOnTurn - state.turn)} เทิร์น`
+      : `${MOBILE_INFO[player.mobile].label} ${player.hp}/${maxHp}${player.wetTurns ? ' · เปียก' : ''}`;
     head.append(name, meta);
     const track = document.createElement('div'); track.className = 'hp-track';
     const fill = document.createElement('div'); fill.className = 'hp-fill'; fill.style.width = `${100 * player.hp / maxHp}%`;
@@ -704,7 +714,10 @@ function renderSummary(summary: MatchSummary): void {
     body.append(row);
   }
   table.append(head, body);
-  $('result-stats').replaceChildren(table);
+  const scores = document.createElement('p');
+  scores.className = 'result-score';
+  scores.textContent = `แต้มคงเหลือ · ทีม A ${summary.teamPoints[0]} : ${summary.teamPoints[1]} ทีม B`;
+  $('result-stats').replaceChildren(...(summary.teamScoreMode ? [scores, table] : [table]));
 }
 $('rematch-ready').addEventListener('click', () => send({ type: 'rematch-ready', ready: !gameState?.rematchReady.includes(playerId) }));
 function updateTimer(): void {
