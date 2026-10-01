@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, MOVE_SPEED, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, returnToLobby, selectPracticeMobile, startRound, TURN_MOVE_LIMIT, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import { botShouldRepair, chooseBotMove, chooseBotTeleport, planBotShot } from './bot.ts';
 import type { BotMove } from './bot.ts';
@@ -119,6 +119,7 @@ function expireSession(session: Session): void {
     if (state.activeId === player.id || (state.mode === 'teams' ? teamCount <= 1 : living.length <= 1)) finishOrAdvance(state, Date.now());
   } else {
     state.players = state.players.filter(candidate => candidate.id !== player.id);
+    rebalanceLobbyTeams(state);
     state.rematchReady = state.rematchReady.filter(id => id !== player.id);
     state.lobbyReady = state.lobbyReady.filter(id => id !== player.id);
     if (state.hostId === player.id) state.hostId = state.players[0]?.id ?? '';
@@ -192,8 +193,12 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.players.length >= MAX_PLAYERS && botIndex < 0) throw new Error('ห้องเต็มแล้ว');
     const id = randomBytes(12).toString('hex');
     const entrant = makePlayer(id, cleanName(action.name), mobile(action.mobile ?? 'loom'));
-    if (botIndex >= 0) state.players.splice(botIndex, 1, entrant);
+    if (botIndex >= 0) {
+      entrant.team = state.players[botIndex].team;
+      state.players.splice(botIndex, 1, entrant);
+    }
     else state.players.push(entrant);
+    rebalanceLobbyTeams(state);
     state.lobbyReady = [];
     welcome(ws, makeSession(id, code), false);
     stateBroadcast(state);
@@ -238,6 +243,14 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (action.mode !== 'ffa' && action.mode !== 'teams') throw new Error('โหมดไม่ถูกต้อง');
     state.mode = action.mode;
     state.lobbyReady = [];
+    if (state.mode === 'ffa') state.players.forEach(entrant => { entrant.team = null; });
+    rebalanceLobbyTeams(state);
+  } else if (action.type === 'set-team') {
+    if (state.phase !== 'lobby' || state.mode !== 'teams') throw new Error('เลือกทีมได้ในห้องเตรียมเกมโหมดทีมเท่านั้น');
+    if (action.team !== 0 && action.team !== 1) throw new Error('ทีมไม่ถูกต้อง');
+    if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยนทีม');
+    player.team = action.team;
+    rebalanceLobbyTeams(state);
   } else if (action.type === 'add-bot') {
     if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่เพิ่มบอทได้');
     if (state.players.length >= MAX_PLAYERS) throw new Error('ห้องเต็มแล้ว');
@@ -246,11 +259,13 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     const bot = makePlayer(`bot-${randomBytes(12).toString('hex')}`, `Bot ${number}`, kind);
     bot.isBot = true;
     state.players.push(bot);
+    rebalanceLobbyTeams(state);
   } else if (action.type === 'remove-bot') {
     if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่ลบบอทได้');
     const index = state.players.map(candidate => candidate.isBot).lastIndexOf(true);
     if (index < 0) throw new Error('ไม่มีบอทในห้อง');
     state.players.splice(index, 1);
+    rebalanceLobbyTeams(state);
   } else if (action.type === 'set-bot-difficulty') {
     if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่เลือกระดับบอทได้');
     if (!['easy', 'normal', 'hard'].includes(action.difficulty)) throw new Error('ระดับบอทไม่ถูกต้อง');

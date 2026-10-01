@@ -93,6 +93,7 @@ export type ClientAction =
   | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
   | { type: 'set-mode'; mode: MatchMode }
+  | { type: 'set-team'; team: Team }
   | { type: 'add-bot' }
   | { type: 'remove-bot' }
   | { type: 'set-bot-difficulty'; difficulty: BotDifficulty }
@@ -232,10 +233,29 @@ export function makePlayer(id: string, name: string, mobile: MobileKind): Player
     equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, fallen: false, wetTurns: 0, wetOnTurn: null };
 }
 
+export function rebalanceLobbyTeams(state: GameState): void {
+  if (state.mode !== 'teams') return;
+  const humans = state.players.filter(player => !player.isBot);
+  for (const player of humans) {
+    if (player.team !== null) continue;
+    const a = humans.filter(candidate => candidate.team === 0).length;
+    const b = humans.filter(candidate => candidate.team === 1).length;
+    player.team = a <= b ? 0 : 1;
+  }
+  let a = humans.filter(player => player.team === 0).length;
+  let b = humans.length - a;
+  for (const bot of state.players.filter(player => player.isBot)) {
+    bot.team = a <= b ? 0 : 1;
+    if (bot.team === 0) a++; else b++;
+  }
+}
+
 export function startRound(state: GameState, seed: number, now: number): void {
   if (state.phase !== 'lobby' && state.phase !== 'finished') throw new Error('เริ่มรอบใหม่ไม่ได้');
   if (state.players.length < 2 || state.players.length > MAX_PLAYERS || state.players.some(player => !player.connected)) throw new Error('ต้องมีผู้เล่นที่เชื่อมต่อ 2–4 คน');
   if (state.mode === 'teams' && state.players.length !== 4) throw new Error('โหมดทีมต้องมีผู้เล่น 4 คน');
+  rebalanceLobbyTeams(state);
+  if (state.mode === 'teams' && state.players.filter(player => player.team === 0).length !== 2) throw new Error('โหมดทีมต้องมีทีม A และ B ฝั่งละ 2 คน');
   if (state.mode !== 'practice' && state.phase === 'lobby' && state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id))) throw new Error('รอให้ผู้เล่นทุกคนกดพร้อม');
   const maps: MapKind[] = ['cloud-reef', 'clockwork-orchard', 'glass-dunes'];
   state.seed = seed;
@@ -254,7 +274,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
     player.doubleArmed = false;
     player.extraTurnArmed = false;
     player.facing = player.x > WIDTH / 2 ? -1 : 1;
-    player.team = state.mode === 'teams' ? index % 2 as Team : null;
+    player.team = state.mode === 'teams' ? player.team : null;
     player.specialAvailable = true;
     player.stats = emptyStats();
     player.walkedThisTurn = 0;
@@ -277,7 +297,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
 
 export function returnToLobby(state: GameState): void {
   if (state.phase !== 'finished') throw new Error('ยังไม่จบรอบ');
-  state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, player.isBot ? player.mobile : 'loom'), connected: player.connected, isBot: player.isBot }));
+  state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, player.isBot ? player.mobile : 'loom'), connected: player.connected, isBot: player.isBot, team: state.mode === 'teams' ? player.team : null }));
   state.phase = 'lobby';
   state.terrain = [];
   state.terrainBottom = [];

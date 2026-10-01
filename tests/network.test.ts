@@ -76,6 +76,12 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       if (count === 4) {
         host.send({ type: 'set-mode', mode: 'teams' });
         await host.waitFor(e => e.type === 'state' && e.state.mode === 'teams');
+        host.send({ type: 'set-team', team: 1 });
+        await host.waitFor(e => e.type === 'state' && e.state.players[0].team === 1);
+        host.send({ type: 'start' });
+        await host.waitFor(e => e.type === 'error' && /ฝั่งละ 2/.test(e.message));
+        host.send({ type: 'set-team', team: 0 });
+        await host.waitFor(e => e.type === 'state' && e.state.players[0].team === 0);
       }
       host.send({ type: 'select', mobile: 'bramble' });
       clients[1].send({ type: 'select', mobile: 'cinder' });
@@ -281,8 +287,16 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
     botHost.send({ type: 'set-mode', mode: 'teams' });
     botHost.send({ type: 'add-bot' });
     await botHost.waitFor(e => e.type === 'state' && e.state.players.length === 4 && e.state.mode === 'teams');
+    botHost.send({ type: 'set-team', team: 1 });
+    const swappedBots = await botHost.waitFor(e => e.type === 'state' && e.state.players[0].team === 1);
+    assert.equal(swappedBots.type, 'state');
+    assert.deepEqual(swappedBots.state.players.map(player => player.team), [1, 1, 0, 0]);
+    botHost.send({ type: 'set-team', team: 0 });
+    await botHost.waitFor(e => e.type === 'state' && e.state.players[0].team === 0);
     lateGuest.send({ type: 'lobby-ready', ready: true });
     await botHost.waitFor(e => e.type === 'state' && e.state.lobbyReady.includes(guestWelcome.id));
+    lateGuest.send({ type: 'set-team', team: 0 });
+    await lateGuest.waitFor(e => e.type === 'error' && /ยกเลิกพร้อม/.test(e.message));
     botHost.send({ type: 'start' });
     const teamBattle = await botHost.waitFor(e => e.type === 'state' && e.state.phase === 'playing');
     assert.equal(teamBattle.type, 'state');

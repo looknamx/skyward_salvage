@@ -238,6 +238,7 @@ $('practice').addEventListener('click', () => {
 $('start').addEventListener('click', () => send({ type: 'start' }));
 $('lobby-ready').addEventListener('click', () => send({ type: 'lobby-ready', ready: !gameState?.lobbyReady.includes(playerId) }));
 ($('match-mode') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-mode', mode: (event.target as HTMLSelectElement).value as GameState['mode'] }));
+($('team-select') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-team', team: Number((event.target as HTMLSelectElement).value) as 0 | 1 }));
 $('add-bot').addEventListener('click', () => send({ type: 'add-bot' }));
 $('remove-bot').addEventListener('click', () => send({ type: 'remove-bot' }));
 ($('bot-difficulty') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-bot-difficulty', difficulty: (event.target as HTMLSelectElement).value as GameState['botDifficulty'] }));
@@ -580,6 +581,13 @@ function render(state: GameState): void {
     const me = state.players.find(player => player.id === playerId);
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
+    $('lobby-options').classList.toggle('team-mode', state.mode === 'teams');
+    $('team-select-wrap').classList.toggle('hidden', state.mode !== 'teams');
+    const teamSelect = $('team-select') as HTMLSelectElement;
+    teamSelect.value = String(me?.team ?? 0);
+    teamSelect.disabled = !me?.connected || isReady;
+    const teamA = state.players.filter(player => player.team === 0).length;
+    const teamB = state.players.filter(player => player.team === 1).length;
     const botCount = state.players.filter(player => player.isBot).length;
     $('bot-count').textContent = String(botCount);
     ($('add-bot') as HTMLButtonElement).disabled = !isHost || state.players.length >= MAX_PLAYERS;
@@ -594,10 +602,10 @@ function render(state: GameState): void {
     for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) paintReel(reel, isReady || !me?.connected);
     $('equipment-stats').textContent = me ? `โจมตี +${equipmentBonus(me, 'attack')} · ป้องกัน +${equipmentBonus(me, 'defense')} · เลือด +${equipmentBonus(me, 'health')}` : '';
     if (me && Object.values(me.randomEquipment).some(Boolean)) $('equipment-stats').textContent += ' · รอผลสุ่มของสวมใส่';
-    $('lobby-players').replaceChildren(...state.players.map((player, index) => {
+    $('lobby-players').replaceChildren(...state.players.map(player => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
-      const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
+      const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${player.team === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
       const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? 'รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
       const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
       ready.textContent = player.isBot ? 'พร้อมอัตโนมัติ' : player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
@@ -606,10 +614,10 @@ function render(state: GameState): void {
     }));
     $('start').classList.toggle('hidden', !isHost);
     $('lobby-ready').classList.toggle('hidden', isHost);
-    ($('start') as HTMLButtonElement).disabled = !isHost || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && state.players.length !== 4) || state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id));
+    ($('start') as HTMLButtonElement).disabled = !isHost || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && (state.players.length !== 4 || teamA !== 2 || teamB !== 2)) || state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id));
     ($('lobby-ready') as HTMLButtonElement).disabled = !me?.connected;
     $('lobby-ready').textContent = isReady ? 'ยกเลิกพร้อม' : 'พร้อมเล่น';
-    $('lobby-status').textContent = `${state.players.length}/4 ช่อง · ผู้เล่น ${state.players.filter(player => !player.isBot).length} · บอท ${botCount} · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - botCount - 1)}${state.mode === 'teams' ? ' · ทีม A/B สลับตามลำดับเข้าห้อง' : ''}`;
+    $('lobby-status').textContent = `${state.players.length}/4 ช่อง · ผู้เล่น ${state.players.filter(player => !player.isBot).length} · บอท ${botCount} · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - botCount - 1)}${state.mode === 'teams' ? ` · ทีม A ${teamA} / B ${teamB}${state.players.length === 4 && teamA !== 2 ? ' · ต้องฝั่งละ 2 คัน' : ''}` : ''}`;
     return;
   }
   $('player-strip').replaceChildren(...state.players.map(player => {

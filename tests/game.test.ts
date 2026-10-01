@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, crater, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, hasGroundAt, launchElevation, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, MOBILE_HITBOX, MOBILE_INFO, movePlayer, MOVE_SPEED, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, selectPracticeMobile, returnToLobby, settlePlayers, SHOT_DAMAGE_SCALE, startRound as startRoundCore, STEP, TURN_MOVE_LIMIT, turnPlayer, useItem, VOID_GROUND, weatherFor, WIDTH, windChangesOn, windDamageBonus, windFor } from '../shared/game.ts';
+import { collectItemDrop, crater, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, hasGroundAt, launchElevation, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, MOBILE_HITBOX, MOBILE_INFO, movePlayer, MOVE_SPEED, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, rebalanceLobbyTeams, resetPractice, selectPracticeMobile, returnToLobby, settlePlayers, SHOT_DAMAGE_SCALE, startRound as startRoundCore, STEP, TURN_MOVE_LIMIT, turnPlayer, useItem, VOID_GROUND, weatherFor, WIDTH, windChangesOn, windDamageBonus, windFor } from '../shared/game.ts';
 import type { GameState, MobileKind } from '../shared/game.ts';
 import { botAimChance, botIsInDanger, botShouldRepair, chooseBotMove, chooseBotTeleport, planBotShot } from '../server/bot.ts';
 
@@ -66,6 +66,31 @@ test('bot moves toward distant opponents, repairs critical HP, and teleports awa
   assert.ok(Math.abs(copy.players[1].x - bot.x) >= 90);
   assert.equal(botIsInDanger(copy, bot.id), false);
   assert.equal(copy.players[1].items.teleport, 0);
+});
+
+test('team choices remain through gameplay and rematch while bots fill the other side', () => {
+  const state = createState('TEAMS1', 'host', 'Host', 'loom');
+  state.players.push(makePlayer('guest', 'Guest', 'manta'));
+  for (let index = 1; index <= 2; index++) {
+    const bot = makePlayer(`bot-${index}`, `Bot ${index}`, 'borer');
+    bot.isBot = true;
+    state.players.push(bot);
+  }
+  state.mode = 'teams';
+  rebalanceLobbyTeams(state);
+  assert.deepEqual(state.players.map(player => player.team), [0, 1, 0, 1]);
+  state.players[0].team = 1;
+  rebalanceLobbyTeams(state);
+  assert.deepEqual(state.players.map(player => player.team), [1, 1, 0, 0]);
+  state.lobbyReady = ['guest'];
+  startRoundCore(state, 10, 1000);
+  assert.deepEqual(state.players.map(player => player.team), [1, 1, 0, 0]);
+  state.phase = 'finished';
+  returnToLobby(state);
+  assert.deepEqual(state.players.map(player => player.team), [1, 1, 0, 0]);
+  state.players[1].team = 0;
+  rebalanceLobbyTeams(state);
+  assert.deepEqual(state.players.map(player => player.team), [1, 0, 0, 1]);
 });
 
 function startRound(state: GameState, seed: number, now: number): void {

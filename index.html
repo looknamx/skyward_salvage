@@ -36,9 +36,12 @@
         <div class="lobby-card">
           <p class="eyebrow">ห้องส่วนตัว</p>
           <h2>เตรียมออกเดินทาง</h2>
-          <div class="invite">รหัสห้อง <strong id="lobby-code"></strong> <button id="copy-link">คัดลอกลิงก์</button></div>
-          <label class="mode-select" for="match-mode">รูปแบบการเล่น <select id="match-mode"><option value="ffa">ทุกคนสู้กัน</option><option value="teams">ทีม 2v2 (ต้องมี 4 คน)</option></select></label>
-          <div class="bot-controls"><span>บอทเติมห้อง</span><button id="remove-bot" type="button">−</button><strong id="bot-count">0</strong><button id="add-bot" type="button">+</button><label for="bot-difficulty">ระดับ <select id="bot-difficulty"><option value="easy">ง่าย</option><option value="normal">ปกติ</option><option value="hard">ยาก</option></select></label></div>
+          <div class="invite"><span>รหัสห้อง</span><strong id="lobby-code"></strong><button id="copy-link">คัดลอกลิงก์</button></div>
+          <div id="lobby-options" class="lobby-options">
+            <label class="mode-select" for="match-mode">รูปแบบการเล่น <select id="match-mode"><option value="ffa">ทุกคนสู้กัน</option><option value="teams">ทีม 2v2 (ต้องมี 4 คน)</option></select></label>
+            <label id="team-select-wrap" class="team-select hidden" for="team-select">ทีมของคุณ <select id="team-select"><option value="0">ทีม A</option><option value="1">ทีม B</option></select></label>
+            <div class="bot-controls"><span>บอทเติมห้อง</span><div class="bot-controls-row"><button id="remove-bot" type="button" aria-label="ลดจำนวนบอท">−</button><strong id="bot-count">0</strong><button id="add-bot" type="button" aria-label="เพิ่มจำนวนบอท">+</button><label for="bot-difficulty">ระดับ <select id="bot-difficulty"><option value="easy">ง่าย</option><option value="normal">ปกติ</option><option value="hard">ยาก</option></select></label></div></div>
+          </div>
           <div id="slot-machine" class="slot-machine" aria-label="ตู้เลือก Mobile และชุดสวมใส่">
             <div class="slot-machine-heading"><strong>ตู้ปรับแต่ง Mobile</strong><span>คลิกหรือปัดขึ้นลงเพื่อหมุนแต่ละช่อง</span></div>
             <div id="slot-reels" class="slot-reels"></div>
