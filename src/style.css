@@ -140,6 +140,7 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
 .mode-select{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;color:#e4eedd;font-weight:600}
 .mode-select select{min-width:180px;padding:8px 10px;border:1px solid #84a9b5;border-radius:7px;background:#132942;color:#fff4d5;font:600 14px Kanit,sans-serif}
 .mode-select select:disabled{opacity:.7}
+.bot-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 10px;color:#e4eedd;font-size:13px;font-weight:600}.bot-controls>span{margin-right:auto}.bot-controls button,.bot-controls select{border:1px solid #84a9b5;border-radius:7px;background:#18334c;color:#fff4d5;font:600 13px Kanit,sans-serif}.bot-controls button{min-width:29px;height:28px}.bot-controls select{padding:3px 7px}.bot-controls label{display:flex;align-items:center;gap:5px}.bot-controls button:disabled,.bot-controls select:disabled{opacity:.5}
 .fire-button.special-armed{color:#dbfff7;text-shadow:0 2px 3px #125b60,0 0 12px #7ef9e6;filter:hue-rotate(125deg) drop-shadow(0 5px 9px #0d1726a8)}
 .result-card{width:min(700px,100%);max-height:min(92dvh,700px);overflow:auto}
 .result-stats{overflow-x:auto;margin:16px 0}
@@ -275,11 +276,12 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
   .lobby-card .status{margin:3px 0;font-size:12px}
 }
 @media(min-width:621px) and (max-height:520px) and (orientation:landscape){
-  .lobby-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"title title" "invite invite" "mode mode" "mobilelabel equipmentlabel" "mobiles equipment" "random stats" "players players" "start start" "status status";column-gap:12px;row-gap:2px;width:min(100%,980px);max-height:98dvh;padding:5px 12px;overflow-y:auto}
+  .lobby-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"title title" "invite invite" "mode bots" "mobilelabel equipmentlabel" "mobiles equipment" "random stats" "players players" "start start" "status status";column-gap:12px;row-gap:2px;width:min(100%,980px);max-height:98dvh;padding:5px 12px;overflow-y:auto}
   .lobby-card h2{grid-area:title;font-size:19px}
   .lobby-card .invite{grid-area:invite;margin:1px 0;padding:2px 7px}
   .lobby-card .invite strong{font-size:16px}
   .lobby-card .mode-select{grid-area:mode;margin:0}
+  .lobby-card .bot-controls{grid-area:bots;justify-self:end;margin:0;font-size:10px}.lobby-card .bot-controls>span{display:none}.lobby-card .bot-controls button{min-width:22px;height:20px;font-size:10px}.lobby-card .bot-controls select{padding:0 3px;font-size:10px}
   #mobile-label{grid-area:mobilelabel}
   #equipment-label{grid-area:equipmentlabel}
   .lobby-card .lobby-picker-label{margin:0;font-size:10px}
@@ -308,6 +310,7 @@ body{display:grid;place-items:center;min-height:100dvh;background:#101b32}#app{w
   .lobby-card .invite{height:35px;margin:2px 0;padding:1px 7px}
   .lobby-card .invite button{padding:2px 7px;font-size:10px}
   .lobby-card .mode-select{margin:2px 0}
+  .lobby-card .bot-controls{margin:0 0 2px}
   .slot-reel-window{grid-template-rows:25px 42px 25px}
   .random-mobile-row{margin:2px 0}
   .lobby-players{gap:2px}

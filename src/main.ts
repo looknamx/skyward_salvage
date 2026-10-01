@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GameScene, MAP_BACKGROUNDS } from './GameScene.ts';
-import { equipmentBonus, launchElevation, maxHpFor, MIN_POWER, MOBILE_INFO, ORDINARY_MOBILES, TURN_MOVE_LIMIT, TURN_MS } from '../shared/game.ts';
+import { equipmentBonus, launchElevation, maxHpFor, MAX_PLAYERS, MIN_POWER, MOBILE_INFO, ORDINARY_MOBILES, TURN_MOVE_LIMIT, TURN_MS } from '../shared/game.ts';
 import type { ClientAction, EquipmentSet, EquipmentSlot, GameState, MatchSummary, MobileKind, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
@@ -238,6 +238,9 @@ $('practice').addEventListener('click', () => {
 $('start').addEventListener('click', () => send({ type: 'start' }));
 $('lobby-ready').addEventListener('click', () => send({ type: 'lobby-ready', ready: !gameState?.lobbyReady.includes(playerId) }));
 ($('match-mode') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-mode', mode: (event.target as HTMLSelectElement).value as GameState['mode'] }));
+$('add-bot').addEventListener('click', () => send({ type: 'add-bot' }));
+$('remove-bot').addEventListener('click', () => send({ type: 'remove-bot' }));
+($('bot-difficulty') as HTMLSelectElement).addEventListener('change', event => send({ type: 'set-bot-difficulty', difficulty: (event.target as HTMLSelectElement).value as GameState['botDifficulty'] }));
 $('copy-link').addEventListener('click', async () => {
   if (!gameState) return;
   const link = `${location.origin}/?room=${gameState.code}`;
@@ -577,6 +580,13 @@ function render(state: GameState): void {
     const me = state.players.find(player => player.id === playerId);
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
+    const botCount = state.players.filter(player => player.isBot).length;
+    $('bot-count').textContent = String(botCount);
+    ($('add-bot') as HTMLButtonElement).disabled = !isHost || state.players.length >= MAX_PLAYERS;
+    ($('remove-bot') as HTMLButtonElement).disabled = !isHost || botCount === 0;
+    const difficultySelect = $('bot-difficulty') as HTMLSelectElement;
+    difficultySelect.value = state.botDifficulty;
+    difficultySelect.disabled = !isHost;
     if (me) {
       reelSelection.mobile = me.randomUsed ? 'random' : me.mobile;
       for (const slot of ['hat', 'armor', 'flag'] as const) reelSelection[slot] = me.randomEquipment[slot] ? 'random' : me.equipment[slot] ?? 'none';
@@ -590,16 +600,16 @@ function render(state: GameState): void {
       const name = document.createElement('span'); name.textContent = player.name + (player.id === state.hostId ? ' ★' : '') + (state.mode === 'teams' ? ` · ทีม ${index % 2 === 0 ? 'A' : 'B'}` : '') + (player.connected ? '' : ' · หลุด');
       const mobile = document.createElement('b'); mobile.className = 'lobby-player-mobile'; mobile.textContent = player.randomUsed ? 'รอเปิดเผย' : MOBILE_INFO[player.mobile].label;
       const ready = document.createElement('span'); ready.className = `lobby-player-ready${state.lobbyReady.includes(player.id) ? ' is-ready' : ''}`;
-      ready.textContent = player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
+      ready.textContent = player.isBot ? 'พร้อมอัตโนมัติ' : player.id === state.hostId ? 'หัวหน้าห้อง' : state.lobbyReady.includes(player.id) ? 'พร้อมแล้ว' : 'ยังไม่พร้อม';
       element.append(name, mobile, ready);
       return element;
     }));
     $('start').classList.toggle('hidden', !isHost);
     $('lobby-ready').classList.toggle('hidden', isHost);
-    ($('start') as HTMLButtonElement).disabled = !isHost || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && state.players.length !== 4) || state.players.some(player => player.id !== state.hostId && !state.lobbyReady.includes(player.id));
+    ($('start') as HTMLButtonElement).disabled = !isHost || state.players.some(player => !player.connected) || state.players.length < 2 || (state.mode === 'teams' && state.players.length !== 4) || state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id));
     ($('lobby-ready') as HTMLButtonElement).disabled = !me?.connected;
     $('lobby-ready').textContent = isReady ? 'ยกเลิกพร้อม' : 'พร้อมเล่น';
-    $('lobby-status').textContent = `${state.players.filter(player => player.connected).length}/4 คนเข้าห้อง · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - 1)}${state.mode === 'teams' ? ' · ทีม A/B สลับตามลำดับเข้าห้อง' : ''}`;
+    $('lobby-status').textContent = `${state.players.length}/4 ช่อง · ผู้เล่น ${state.players.filter(player => !player.isBot).length} · บอท ${botCount} · พร้อม ${state.lobbyReady.length}/${Math.max(0, state.players.length - botCount - 1)}${state.mode === 'teams' ? ' · ทีม A/B สลับตามลำดับเข้าห้อง' : ''}`;
     return;
   }
   $('player-strip').replaceChildren(...state.players.map(player => {
@@ -659,8 +669,9 @@ function render(state: GameState): void {
   if (state.phase === 'finished') {
     $('result-title').textContent = state.mode === 'teams' && state.winnerTeam !== null ? `ทีม ${state.winnerTeam === 0 ? 'A' : 'B'} ชนะ!` : state.winnerId ? `${state.players.find(player => player.id === state.winnerId)?.name ?? ''} ชนะ!` : 'เสมอ!';
     const connectedCount = state.players.filter(player => player.connected).length;
+    const humanCount = state.players.filter(player => player.connected && !player.isBot).length;
     const enoughPlayers = connectedCount >= 2 && (state.mode !== 'teams' || connectedCount === 4);
-    $('ready-status').textContent = enoughPlayers ? `พร้อมกลับห้องเตรียมเกม ${state.rematchReady.length}/${connectedCount} คน` : state.mode === 'teams' ? 'รีแมตช์ทีมต้องมีครบ 4 คน' : 'รีแมตช์ต้องมีอย่างน้อย 2 คน';
+    $('ready-status').textContent = enoughPlayers ? `พร้อมกลับห้องเตรียมเกม ${state.rematchReady.length}/${humanCount} คน` : state.mode === 'teams' ? 'รีแมตช์ทีมต้องมีครบ 4 คน' : 'รีแมตช์ต้องมีอย่างน้อย 2 คน';
     $('rematch-ready').textContent = state.rematchReady.includes(playerId) ? 'ยกเลิกพร้อม' : 'รีแมตช์ · เลือกรถใหม่';
     ($('rematch-ready') as HTMLButtonElement).disabled = !enoughPlayers;
   }

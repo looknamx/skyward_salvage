@@ -1,7 +1,32 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { collectItemDrop, crater, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, hasGroundAt, launchElevation, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, MOBILE_HITBOX, MOBILE_INFO, movePlayer, MOVE_SPEED, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, selectPracticeMobile, returnToLobby, settlePlayers, startRound as startRoundCore, STEP, TURN_MOVE_LIMIT, turnPlayer, useItem, VOID_GROUND, weatherFor, WIDTH, windChangesOn, windDamageBonus, windFor } from '../shared/game.ts';
+import { collectItemDrop, crater, createState, dropKindForRoll, dropMeteor, equipmentBonus, finishOrAdvance, fireShot, fireTeleport, groundAt, hasGroundAt, launchElevation, makePlayer, maxHpFor, meteorOn, METEOR_CRATER_RADIUS, MOBILE_HITBOX, MOBILE_INFO, movePlayer, MOVE_SPEED, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, selectPracticeMobile, returnToLobby, settlePlayers, SHOT_DAMAGE_SCALE, startRound as startRoundCore, STEP, TURN_MOVE_LIMIT, turnPlayer, useItem, VOID_GROUND, weatherFor, WIDTH, windChangesOn, windDamageBonus, windFor } from '../shared/game.ts';
 import type { GameState, MobileKind } from '../shared/game.ts';
+import { botAimChance, planBotShot } from '../server/bot.ts';
+
+test('bots auto-ready, retain their seat after rematch, and aim less precisely in strong wind', () => {
+  const state = createState('BOT001', 'human', 'Human', 'loom');
+  const bot = makePlayer('bot-1', 'Bot 1', 'borer');
+  bot.isBot = true;
+  state.players.push(bot);
+  startRoundCore(state, 42, 1000);
+  assert.equal(state.phase, 'playing');
+  state.activeId = bot.id;
+  state.wind = 0;
+  const calm = planBotShot(state, bot.id, () => 0);
+  assert.ok(calm.angle >= 10 && calm.angle <= 80);
+  assert.ok(calm.power >= 5 && calm.power <= 100);
+  assert.equal(calm.facing, -1);
+  for (const difficulty of ['easy', 'normal', 'hard'] as const) {
+    assert.ok(botAimChance(difficulty, 8) < botAimChance(difficulty, 0));
+  }
+  assert.ok(botAimChance('easy', 0) < botAimChance('normal', 0));
+  assert.ok(botAimChance('normal', 0) < botAimChance('hard', 0));
+  state.phase = 'finished';
+  returnToLobby(state);
+  assert.equal(state.players[1].isBot, true);
+  assert.equal(state.players[1].mobile, 'borer');
+});
 
 function startRound(state: GameState, seed: number, now: number): void {
   if (state.phase === 'lobby') state.lobbyReady = state.players.filter(player => player.id !== state.hostId).map(player => player.id);
@@ -93,7 +118,7 @@ test('storm has a 70% chance to ignore all DEF without changing trajectory', () 
   storm.weather = { kind: 'storm', x: 640, width: 92, startedTurn: 1, direction: 1 };
   const stormShot = fireShot(storm, 'p1', 45, 45, 1100, false, () => 0.699999);
   assert.equal(stormShot.impacts[0].x, normalShot.impacts[0].x);
-  assert.equal(normal.players[1].hp - storm.players[1].hp, 6);
+  assert.equal(normal.players[1].hp - storm.players[1].hp, 3);
   assert.equal(stormShot.impacts[0].weatherEffect, 'storm');
   const resisted = structuredClone(plain);
   resisted.weather = storm.weather;
@@ -221,6 +246,36 @@ test('Manta and Kestrel share one flight until ground impact, then fragments hit
   }
 });
 
+test('split Mobiles share equipment ATK across fragments before Double Damage', () => {
+  for (const mobile of ['manta', 'kestrel'] as const) {
+    for (const special of [false, true]) {
+      const state = flatArena(mobile);
+      state.players[0].equipment = { hat: 'attack', armor: 'attack', flag: 'attack' };
+      const shot = fireShot(state, 'p1', 45, 45, 1100, special);
+      const fragmentCount = special ? 3 : 2;
+      const base = special ? 19 : MOBILE_INFO[mobile].damage;
+      assert.equal(shot.paths.length, fragmentCount);
+      assert.equal(shot.impacts.length, fragmentCount);
+      assert.equal(shot.impacts.reduce((total, impact) => total + impact.damage, 0), base * fragmentCount + 15);
+      assert.ok(Math.max(...shot.impacts.map(impact => impact.damage)) - Math.min(...shot.impacts.map(impact => impact.damage)) <= 1);
+
+      const doubled = flatArena(mobile);
+      doubled.players[0].equipment = { hat: 'attack', armor: 'attack', flag: 'attack' };
+      doubled.players[0].doubleArmed = true;
+      const doubleShot = fireShot(doubled, 'p1', 45, 45, 1100, special);
+      assert.equal(doubleShot.impacts.reduce((total, impact) => total + impact.damage, 0), 2 * (base * fragmentCount + 15));
+    }
+
+    const direct = flatArena(mobile);
+    direct.players[0].equipment = { hat: 'attack', armor: 'attack', flag: 'attack' };
+    direct.players[1].x = direct.players[0].x + 100;
+    settlePlayers(direct);
+    const directShot = fireShot(direct, 'p1', 10, 5, 1100);
+    assert.equal(directShot.paths.length, 1);
+    assert.equal(directShot.impacts[0].damage, MOBILE_INFO[mobile].damage + 15);
+  }
+});
+
 test('split rounds leaving the arena never split in midair', () => {
   const state = flatArena('manta');
   state.players[0].x = 1180;
@@ -243,7 +298,7 @@ test('every Mobile uses the same direct projectile hitbox and its own base DEF',
     const shot = fireShot(state, 'p1', 10, 5, 1100);
     assert.equal(shot.impacts.length, 1, mobile);
     assert.ok(shot.impacts[0].y < groundAt(state.terrain, shot.impacts[0].x), mobile);
-    assert.equal(target.hp, MOBILE_INFO[mobile].maxHp - (MOBILE_INFO.loom.damage - MOBILE_INFO[mobile].defense), mobile);
+    assert.equal(target.hp, MOBILE_INFO[mobile].maxHp - Math.round((MOBILE_INFO.loom.damage - MOBILE_INFO[mobile].defense) / 2), mobile);
     assert.ok(shot.hitIds?.includes(target.id), mobile);
   }
 });
@@ -257,7 +312,29 @@ test('a direct hit on a split-shot parent damages a Mobile without splitting mid
     const shot = fireShot(state, 'p1', 10, 5, 1100);
     assert.equal(shot.paths.length, 1);
     assert.equal(shot.impacts.length, 1);
-    assert.equal(target.hp, 100 - (MOBILE_INFO[mobile].damage - MOBILE_INFO.loom.defense));
+    assert.equal(target.hp, 100 - Math.round((MOBILE_INFO[mobile].damage - MOBILE_INFO.loom.defense) / 2));
+  }
+});
+
+test('all Mobiles deal half their former shot damage after DEF, including specials, equipment, and Double Damage', () => {
+  assert.equal(SHOT_DAMAGE_SCALE, 0.5);
+  for (const mobile of Object.keys(MOBILE_INFO) as MobileKind[]) {
+    for (const special of [false, true]) {
+      for (const boosted of [false, true]) {
+        const state = flatArena(mobile);
+        const shooter = state.players[0], target = state.players[1];
+        target.x = shooter.x + 100;
+        if (boosted) {
+          shooter.equipment = { hat: 'attack', armor: 'attack', flag: 'attack' };
+          shooter.doubleArmed = true;
+        }
+        settlePlayers(state);
+        const shot = fireShot(state, 'p1', 10, 5, 1100, special);
+        assert.equal(shot.impacts.length, 1, `${mobile} special=${special}`);
+        const formerDamage = shot.impacts[0].damage - MOBILE_INFO[target.mobile].defense;
+        assert.equal(100 - target.hp, Math.round(formerDamage / 2), `${mobile} special=${special} boosted=${boosted}`);
+      }
+    }
   }
 });
 

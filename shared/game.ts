@@ -6,6 +6,7 @@ export const MAX_PLAYERS = 4;
 export const MOVE_SPEED = 88;
 export const TURN_MOVE_LIMIT = 175;
 export const MIN_POWER = 5;
+export const SHOT_DAMAGE_SCALE = 0.5;
 export const VOID_GROUND = HEIGHT + 160;
 
 export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'halo' | 'kestrel' | 'cinder' | 'aegis' | 'gale' | 'tempest';
@@ -14,6 +15,7 @@ export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport' | 'double-play';
 export type DropKind = ItemKind | 'special';
 export type MatchMode = 'ffa' | 'teams' | 'practice';
+export type BotDifficulty = 'easy' | 'normal' | 'hard';
 export type EquipmentSlot = 'hat' | 'armor' | 'flag';
 export type EquipmentSet = 'attack' | 'defense' | 'health' | 'gold';
 export type Equipment = Record<EquipmentSlot, EquipmentSet | null>;
@@ -35,6 +37,7 @@ export interface PlayerState {
   doubleArmed: boolean;
   extraTurnArmed: boolean;
   connected: boolean;
+  isBot: boolean;
   facing: -1 | 1;
   team: Team | null;
   specialAvailable: boolean;
@@ -64,6 +67,7 @@ export interface GameState {
   winnerId: string | null;
   message: string;
   mode: MatchMode;
+  botDifficulty: BotDifficulty;
   meteor: MeteorEvent | null;
   weather: WeatherState | null;
   winnerTeam: Team | null;
@@ -89,6 +93,9 @@ export type ClientAction =
   | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
   | { type: 'set-mode'; mode: MatchMode }
+  | { type: 'add-bot' }
+  | { type: 'remove-bot' }
+  | { type: 'set-bot-difficulty'; difficulty: BotDifficulty }
   | { type: 'rematch-ready'; ready: boolean }
   | { type: 'resume'; token: string }
   | { type: 'move'; direction: -1 | 0 | 1 }
@@ -214,13 +221,13 @@ export function createState(code: string, hostId: string, name: string, mobile: 
     code, phase: 'lobby', hostId,
     players: [makePlayer(hostId, name, mobile)], terrain: [], terrainBottom: [], map: 'cloud-reef',
     seed: 0, wind: 0, turn: 0, activeId: null, deadline: 0, winnerId: null,
-    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', meteor: null, weather: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
+    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', botDifficulty: 'normal', meteor: null, weather: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
   };
 }
 
 export function makePlayer(id: string, name: string, mobile: MobileKind): PlayerState {
   return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
-    items: { double: 1, repair: 1, teleport: 1, 'double-play': 1 }, doubleArmed: false, extraTurnArmed: false, connected: true, facing: 1,
+    items: { double: 1, repair: 1, teleport: 1, 'double-play': 1 }, doubleArmed: false, extraTurnArmed: false, connected: true, isBot: false, facing: 1,
     team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false,
     equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, fallen: false, wetTurns: 0, wetOnTurn: null };
 }
@@ -229,7 +236,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   if (state.phase !== 'lobby' && state.phase !== 'finished') throw new Error('เริ่มรอบใหม่ไม่ได้');
   if (state.players.length < 2 || state.players.length > MAX_PLAYERS || state.players.some(player => !player.connected)) throw new Error('ต้องมีผู้เล่นที่เชื่อมต่อ 2–4 คน');
   if (state.mode === 'teams' && state.players.length !== 4) throw new Error('โหมดทีมต้องมีผู้เล่น 4 คน');
-  if (state.mode !== 'practice' && state.phase === 'lobby' && state.players.some(player => player.id !== state.hostId && !state.lobbyReady.includes(player.id))) throw new Error('รอให้ผู้เล่นทุกคนกดพร้อม');
+  if (state.mode !== 'practice' && state.phase === 'lobby' && state.players.some(player => !player.isBot && player.id !== state.hostId && !state.lobbyReady.includes(player.id))) throw new Error('รอให้ผู้เล่นทุกคนกดพร้อม');
   const maps: MapKind[] = ['cloud-reef', 'clockwork-orchard', 'glass-dunes'];
   state.seed = seed;
   state.map = maps[seed % maps.length];
@@ -270,7 +277,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
 
 export function returnToLobby(state: GameState): void {
   if (state.phase !== 'finished') throw new Error('ยังไม่จบรอบ');
-  state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, 'loom'), connected: player.connected }));
+  state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, player.isBot ? player.mobile : 'loom'), connected: player.connected, isBot: player.isBot }));
   state.phase = 'lobby';
   state.terrain = [];
   state.terrainBottom = [];
@@ -686,12 +693,18 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
   const hitIds = new Set<string>();
   const wetIds = new Set<string>();
   const destroyedDrops: { id: string; x: number; y: number }[] = [];
-  for (const shot of shots) {
+  // A split shot shares one equipment ATK budget across its fragments.
+  // A parent that hits a Mobile before splitting keeps the full bonus.
+  const attackBonus = equipmentBonus(player, 'attack');
+  const attackPerShot = Math.floor(attackBonus / shots.length);
+  const attackRemainder = attackBonus % shots.length;
+  for (const [shotIndex, shot] of shots.entries()) {
     result.paths.push(shot.path);
     if (shot.crossedWeather) { result.weatherCharged = true; result.weatherKind = state.weather?.kind; }
     if (!shot.hit) continue;
     const multiplier = player.doubleArmed ? 2 : 1;
-    const impact: Impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + equipmentBonus(player, 'attack') + windDamageBonus(player.mobile, state.wind)) * multiplier };
+    const sharedAttack = attackPerShot + (shotIndex < attackRemainder ? 1 : 0);
+    const impact: Impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + sharedAttack + windDamageBonus(player.mobile, state.wind)) * multiplier };
     result.impacts.push(impact);
     for (const target of state.players) {
       if (target.hp <= 0) continue;
@@ -703,7 +716,9 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
         const weatherEffect = shot.crossedWeather && state.weather && weatherRoll() < 0.7 ? state.weather.kind : null;
         const defense = weatherEffect === 'storm' ? 0 : MOBILE_INFO[target.mobile].defense + equipmentBonus(target, 'defense');
         const weatherBonus = weatherEffect === 'lightning' ? 5 : 0;
-        target.hp = Math.max(0, target.hp - Math.max(0, Math.round(impact.damage * falloff) - defense + weatherBonus));
+        const mitigatedDamage = Math.max(0, Math.round(impact.damage * falloff) - defense);
+        const dealtByShot = Math.round(mitigatedDamage * SHOT_DAMAGE_SCALE) + weatherBonus;
+        target.hp = Math.max(0, target.hp - dealtByShot);
         const dealt = before - target.hp;
         if (dealt > 0) {
           target.stats.damageTaken += dealt;

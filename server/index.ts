@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
+import { planBotShot } from './bot.ts';
 
 const PORT = Number(process.env.PORT || 3001);
 const RECONNECT_GRACE_MS = 45_000;
@@ -17,6 +18,7 @@ const sessions = new Map<string, Session>();
 const movement = new Map<string, { playerId: string; direction: -1 | 1 }>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const summarySent = new Set<string>();
+const botTurns = new Map<string, { id: string; turn: number; readyAt: number }>();
 const heartbeats = new WeakMap<WebSocket, boolean>();
 const rateLimits = new WeakMap<WebSocket, { started: number; count: number }>();
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024, perMessageDeflate: false });
@@ -66,6 +68,7 @@ function discardRoom(code: string): void {
   rooms.delete(code);
   movement.delete(code);
   summarySent.delete(code);
+  botTurns.delete(code);
   for (const [token, session] of sessions) if (session.code === code) sessions.delete(token);
   for (const [key, timer] of reconnectTimers) if (key.startsWith(`${code}:`)) { clearTimeout(timer); reconnectTimers.delete(key); }
 }
@@ -74,7 +77,7 @@ function tryRematch(state: GameState): void {
   const connected = state.players.filter(player => player.connected);
   if (connected.length < 2 || (state.mode === 'teams' && connected.length !== 4)) return;
   if (state.players.some(player => !player.connected && [...sessions.values()].some(session => session.code === state.code && session.id === player.id))) return;
-  if (!connected.every(player => state.rematchReady.includes(player.id))) return;
+  if (!connected.every(player => player.isBot || state.rematchReady.includes(player.id))) return;
   state.players = connected;
   if (!connected.some(player => player.id === state.hostId)) state.hostId = connected[0].id;
   summarySent.delete(state.code);
@@ -184,9 +187,12 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     const code = String(action.code ?? '').toUpperCase().trim();
     const state = rooms.get(code);
     if (!state || state.phase !== 'lobby' || state.mode === 'practice') throw new Error('ไม่พบห้องที่รอผู้เล่น');
-    if (state.players.length >= MAX_PLAYERS) throw new Error('ห้องเต็มแล้ว');
+    const botIndex = state.players.findIndex(player => player.isBot);
+    if (state.players.length >= MAX_PLAYERS && botIndex < 0) throw new Error('ห้องเต็มแล้ว');
     const id = randomBytes(12).toString('hex');
-    state.players.push(makePlayer(id, cleanName(action.name), mobile(action.mobile ?? 'loom')));
+    const entrant = makePlayer(id, cleanName(action.name), mobile(action.mobile ?? 'loom'));
+    if (botIndex >= 0) state.players.splice(botIndex, 1, entrant);
+    else state.players.push(entrant);
     state.lobbyReady = [];
     welcome(ws, makeSession(id, code), false);
     stateBroadcast(state);
@@ -231,6 +237,23 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (action.mode !== 'ffa' && action.mode !== 'teams') throw new Error('โหมดไม่ถูกต้อง');
     state.mode = action.mode;
     state.lobbyReady = [];
+  } else if (action.type === 'add-bot') {
+    if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่เพิ่มบอทได้');
+    if (state.players.length >= MAX_PLAYERS) throw new Error('ห้องเต็มแล้ว');
+    const number = Array.from({ length: MAX_PLAYERS }, (_, index) => index + 1).find(index => !state.players.some(candidate => candidate.name === `Bot ${index}`))!;
+    const kind = ORDINARY_MOBILES[randomBytes(4).readUInt32LE(0) % ORDINARY_MOBILES.length];
+    const bot = makePlayer(`bot-${randomBytes(12).toString('hex')}`, `Bot ${number}`, kind);
+    bot.isBot = true;
+    state.players.push(bot);
+  } else if (action.type === 'remove-bot') {
+    if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่ลบบอทได้');
+    const index = state.players.map(candidate => candidate.isBot).lastIndexOf(true);
+    if (index < 0) throw new Error('ไม่มีบอทในห้อง');
+    state.players.splice(index, 1);
+  } else if (action.type === 'set-bot-difficulty') {
+    if (state.phase !== 'lobby' || state.hostId !== current.id) throw new Error('หัวหน้าห้องเท่านั้นที่เลือกระดับบอทได้');
+    if (!['easy', 'normal', 'hard'].includes(action.difficulty)) throw new Error('ระดับบอทไม่ถูกต้อง');
+    state.botDifficulty = action.difficulty;
   } else if (action.type === 'start') {
     if (state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เริ่มได้');
     if (state.phase !== 'lobby') throw new Error('เกมเริ่มไปแล้ว');
@@ -366,6 +389,31 @@ setInterval(() => {
       broadcastSummaryIfFinished(state);
       continue;
     }
+    const activeBot = state.phase === 'playing' && state.players.find(player => player.id === state.activeId && player.isBot && player.hp > 0);
+    if (activeBot) {
+      let pending = botTurns.get(state.code);
+      if (!pending || pending.id !== activeBot.id || pending.turn !== state.turn) {
+        pending = { id: activeBot.id, turn: state.turn, readyAt: now + 1300 };
+        botTurns.set(state.code, pending);
+      }
+      if (now >= pending.readyAt) {
+        botTurns.delete(state.code);
+        try {
+          const shotPlan = planBotShot(state, activeBot.id);
+          activeBot.facing = shotPlan.facing;
+          const hpBefore = new Map(state.players.map(target => [target.id, target.hp]));
+          const shot = fireShot(state, activeBot.id, shotPlan.angle, shotPlan.power, now);
+          broadcast(state.code, { type: 'shot', shot });
+          if (shot.hitIds?.length || state.players.some(target => target.hp < (hpBefore.get(target.id) ?? target.hp))) broadcast(state.code, { type: 'hit' });
+          stateBroadcast(state);
+          broadcastSummaryIfFinished(state);
+        } catch {
+          finishOrAdvance(state, now);
+          stateBroadcast(state);
+          broadcastSummaryIfFinished(state);
+        }
+      }
+    } else botTurns.delete(state.code);
     const input = movement.get(state.code);
     if (state.phase === 'playing' && input) {
       if (state.activeId !== input.playerId) { movement.delete(state.code); continue; }

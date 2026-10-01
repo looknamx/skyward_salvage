@@ -35,17 +35,17 @@
         <div class="roster-tools"><div class="filters" role="group" aria-label="กรองประเภท Mobile"><button type="button" class="filter is-active" data-filter="all" aria-pressed="true">ทั้งหมด</button><button type="button" class="filter" data-filter="terrain" aria-pressed="false">สายขุดพื้น</button><button type="button" class="filter" data-filter="wind" aria-pressed="false">สายลม</button><button type="button" class="filter" data-filter="rare" aria-pressed="false">หายาก</button></div><label class="sort-label">เรียงตาม <select id="mobile-sort"><option value="default">ลำดับในเกม</option><option value="damage">ดาเมจปกติ</option><option value="special">ดาเมจท่าพิเศษ</option><option value="hp">HP สูงสุด</option></select></label></div>
         <p id="result-count" class="result-count" role="status">11 คัน</p>
         <div id="mobile-grid" class="mobile-grid"></div>
-        <p class="roster-note">Manta และ Kestrel ยิงกระสุนย่อย 2 ลูกหลังชนพื้น หรือ 3 ลูกเมื่อใช้ท่าพิเศษ ตัวเลขดาเมจเป็น <b>ต่อกระสุนหนึ่งลูก</b> ไม่ใช่ดาเมจรวมที่รับประกัน กระสุนยิงโดนกรอบรถขนาดเท่ากันทุกคันได้โดยตรง และยิงทำลายไอเทมบนพื้นได้</p>
+        <p class="roster-note">ตัวเลข DMG และ SKILL ในการ์ดเป็นพลังยิงตั้งต้น ก่อนคิดระยะ DEF และลดดาเมจที่รถได้รับ 50% Manta และ Kestrel ยิงกระสุนย่อย 2 ลูกหลังชนพื้น หรือ 3 ลูกเมื่อใช้ท่าพิเศษ โบนัส ATK จากชุดสวมใส่จะแบ่งกันระหว่างกระสุนย่อยทุกลูก กระสุนยิงโดนกรอบรถขนาดเท่ากันทุกคันได้โดยตรง และยิงทำลายไอเทมบนพื้นได้</p>
       </section>
 
       <section id="combat" class="section mechanics" aria-labelledby="combat-title"><div class="section-heading"><div><p class="overline">02 / COMBAT NOTES</p><h2 id="combat-title">ตัวเลขที่ต้องรู้</h2><p>ดาเมจจริงขึ้นกับระยะ ของสวมใส่ ลม และแถบสภาพอากาศ</p></div><span class="section-rule" aria-hidden="true"></span></div>
         <div class="mechanic-grid">
-          <article class="mechanic-card"><span class="mechanic-number">01</span><h3>ดาเมจเมื่อโดน</h3><p>เริ่มจากค่า DMG ของรถ บวก ATK ของสวมใส่และโบนัสสายลม จากนั้นคูณ ×2 หากเปิดไอเทม และลดตามระยะจากจุดระเบิด</p><strong>ที่ขอบระเบิดยังเหลืออย่างน้อย 35%</strong></article>
+          <article class="mechanic-card"><span class="mechanic-number">01</span><h3>ดาเมจเมื่อโดน</h3><p>เริ่มจากค่า DMG ของรถ บวก ATK ของสวมใส่และโบนัสสายลม จากนั้นคูณ ×2 หากเปิดไอเทม ลดตามระยะ หัก DEF แล้วลดดาเมจที่เหลือครึ่งหนึ่ง</p><strong>โบนัสสายฟ้า +5 เพิ่มหลังลดครึ่ง</strong></article>
           <article class="mechanic-card"><span class="mechanic-number">02</span><h3>DEF และ HP</h3><p>รถมี DEF พื้นฐาน 1–2 ชุดป้องกันเพิ่มชิ้นละ 5 และหักจากดาเมจทุกลูก ชุดเลือดเพิ่ม HP สูงสุดชิ้นละ 5</p><strong>Aegis เริ่ม HP 150 · คันอื่น 100</strong></article>
           <article class="mechanic-card"><span class="mechanic-number">03</span><h3>ชุดทองพิเศษ</h3><p>เมื่อสุ่มของสวมใส่ แต่ละช่องมีโอกาส 5% ได้ชุดทอง ชิ้นหนึ่งเพิ่ม ATK, DEF และ HP สูงสุดอย่างละ 3</p><strong>หมวก · เกราะ · ธง ผสมชุดได้</strong></article>
           <article class="mechanic-card"><span class="mechanic-number">04</span><h3>แถบสภาพอากาศ</h3><p>เมื่อกระสุนผ่านแถบและโดนรถ มีโอกาส 70% ต่อเป้าหมาย: สายฟ้าเพิ่มดาเมจ +5 พายุข้าม DEF ทั้งหมด ฝนทำให้รถใช้ไอเทมและท่าพิเศษไม่ได้ในเทิร์นถัดไป</p><strong>ต้องยิงผ่านแถบก่อนจึงมีโอกาสเกิดผล</strong></article>
         </div>
-        <div class="formula"><span>สูตรดาเมจโดยย่อ</span><code>round((DMG + ATK + โบนัสลม) × ไอเทม × ระยะ) − DEF + สายฟ้า</code><small>ผลลัพธ์ต่ำสุดคือ 0 และไม่เกิน HP ที่เหลือของเป้าหมาย</small></div>
+        <div class="formula"><span>สูตรดาเมจโดยย่อ</span><code>round(max(0, round((DMG + ATK + โบนัสลม) × ไอเทม × ระยะ) − DEF) × 0.5) + สายฟ้า</code><small>ผลลัพธ์ต่ำสุดคือ 0 และไม่เกิน HP ที่เหลือของเป้าหมาย</small></div>
       </section>
 
       <section class="closing"><p class="overline">READY TO PLAY?</p><h2>เลือกคันที่ใช่ แล้วไปลองยิงจริง</h2><p>ค่าสถานะในหน้านี้อ้างอิงกติกาเกมเวอร์ชันปัจจุบัน ลองเลือกคันที่ชอบแล้วทดสอบในห้องฝึกยิงได้เลย</p><a class="button button-primary" href="/">กลับไปหน้าเกม <span aria-hidden="true">↗</span></a></section>
