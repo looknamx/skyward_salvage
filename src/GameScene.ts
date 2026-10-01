@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
-import { groundAt, HEIGHT, random, STEP, vehicleTilt, WIDTH } from '../shared/game.ts';
+import { groundAt, hasGroundAt, HEIGHT, MOBILE_INFO, random, STEP, vehicleTilt, WIDTH } from '../shared/game.ts';
 import type { EquipmentSlot, GameState, MeteorEvent, MobileKind, ShotResult } from '../shared/game.ts';
+import { drawDeath, drawImpact, drawProjectile, drawWeatherImpact } from './BattleEffects.ts';
+import { WeatherEffects } from './WeatherEffects.ts';
 
 export const MAP_BACKGROUNDS = {
   'cloud-reef': '/assets/environment/cloud-reef.png',
@@ -10,7 +12,7 @@ export const MAP_BACKGROUNDS = {
 const SHOT_TRAVEL_MS = 820;
 const SHOT_EFFECT_MS = 1360;
 const METEOR_EFFECT_MS = 1150;
-const kinds: MobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder', 'aegis'];
+const kinds = Object.keys(MOBILE_INFO) as MobileKind[];
 const gearSlots: EquipmentSlot[] = ['hat', 'armor', 'flag'];
 const surfaceColors = {
   'cloud-reef': { shadow: '#173c50', rim: '#7dc8c6', grass: '#f1eee0', flower: '#ef8d78', water: '#a4e8ed' },
@@ -19,7 +21,7 @@ const surfaceColors = {
 };
 
 function underside(state: GameState, x: number): number {
-  return groundAt(state.terrain, x) + 173 + 23 * Math.sin(x / 85 + state.seed * 0.001) + 13 * Math.sin(x / 39);
+  return groundAt(state.terrainBottom, x);
 }
 
 export class GameScene extends Phaser.Scene {
@@ -33,11 +35,14 @@ export class GameScene extends Phaser.Scene {
   private terrainKey = '';
   private effects!: Phaser.GameObjects.Graphics;
   private mobiles = new Map<string, Phaser.GameObjects.Image>();
+  private falling = new Set<string>();
   private gear = new Map<string, Partial<Record<EquipmentSlot, Phaser.GameObjects.Image>>>();
   private labels = new Map<string, Phaser.GameObjects.Text>();
   private drops = new Map<string, { image: Phaser.GameObjects.Image; started: number }>();
   private effect: { data: ShotResult; started: number } | null = null;
   private meteorEffect: { data: MeteorEvent; started: number } | null = null;
+  private deathEffects: { id: string; mobile: MobileKind; x: number; y: number; fallen: boolean; started: number }[] = [];
+  private weather: WeatherEffects | null = null;
 
   constructor() { super('battle'); }
 
@@ -47,7 +52,7 @@ export class GameScene extends Phaser.Scene {
       this.load.image(`${key}-rock`, `/assets/terrain/${key}-rock.png`);
     }
     for (const kind of kinds) this.load.image(`mobile-${kind}`, `/assets/characters/${kind}.png`);
-    for (const set of ['attack', 'defense', 'health']) for (const slot of gearSlots) this.load.image(`gear-${set}-${slot}`, `/assets/equipment/${set}-${slot}.png`);
+    for (const set of ['attack', 'defense', 'health', 'gold']) for (const slot of gearSlots) this.load.image(`gear-${set}-${slot}`, `/assets/equipment/${set}-${slot}.png`);
     for (const item of ['double', 'repair', 'teleport', 'double-play', 'special']) this.load.image(`drop-${item}`, `/assets/ui/${item}.png`);
   }
 
@@ -58,7 +63,8 @@ export class GameScene extends Phaser.Scene {
     this.terrainCanvas.height = HEIGHT;
     this.terrainTexture = this.textures.addCanvas('terrain-dynamic', this.terrainCanvas)!;
     this.terrainImage = this.add.image(0, 0, 'terrain-dynamic').setOrigin(0);
-    this.effects = this.add.graphics();
+    this.effects = this.add.graphics().setDepth(14);
+    this.weather = new WeatherEffects(this);
     if (this.state) this.applyState(this.state);
   }
 
@@ -73,18 +79,28 @@ export class GameScene extends Phaser.Scene {
 
   private applyState(state: GameState): void {
     const previousMeteorTurn = this.state?.meteor?.turn;
+    if (this.state?.phase === 'playing') for (const oldPlayer of this.state.players) {
+      const current = state.players.find(player => player.id === oldPlayer.id);
+      if (oldPlayer.hp > 0 && current && current.hp <= 0) this.deathEffects.push({
+        id: oldPlayer.id, mobile: oldPlayer.mobile, x: oldPlayer.x, y: oldPlayer.y - 28,
+        fallen: current.fallen, started: this.time.now,
+      });
+    }
     this.state = state;
     if (!this.backdrop) return;
+    this.weather?.setWeather(state.phase === 'playing' ? state.weather : null);
     if (state.phase === 'lobby') {
       this.effect = null;
       this.meteorEffect = null;
+      this.deathEffects = [];
       this.pendingState = null;
       this.terrainImage.setVisible(false);
-      for (const image of this.mobiles.values()) image.destroy();
+      for (const image of this.mobiles.values()) { this.tweens.killTweensOf(image); image.destroy(); }
       for (const pieces of this.gear.values()) for (const image of Object.values(pieces)) image?.destroy();
       for (const label of this.labels.values()) label.destroy();
       for (const entry of this.drops.values()) { this.tweens.killTweensOf(entry.image); entry.image.destroy(); }
       this.mobiles.clear();
+      this.falling.clear();
       this.gear.clear();
       this.labels.clear();
       this.drops.clear();
@@ -110,13 +126,15 @@ export class GameScene extends Phaser.Scene {
     const shotElapsed = this.effect ? this.time.now - this.effect.started : SHOT_EFFECT_MS;
     const meteorElapsed = this.meteorEffect ? this.time.now - this.meteorEffect.started : METEOR_EFFECT_MS;
     const pendingMeteor = this.pendingState?.meteor && this.pendingState.meteor.turn !== this.state?.meteor?.turn;
-    return Math.max(0, SHOT_EFFECT_MS - shotElapsed, METEOR_EFFECT_MS - meteorElapsed,
+    const deathRemaining = Math.max(0, ...this.deathEffects.map(effect => 1350 - (this.time.now - effect.started)));
+    return Math.max(0, SHOT_EFFECT_MS - shotElapsed, METEOR_EFFECT_MS - meteorElapsed, deathRemaining,
       pendingMeteor ? Math.max(0, SHOT_TRAVEL_MS - shotElapsed) + METEOR_EFFECT_MS : 0);
   }
 
   update(): void {
     if (!this.effects) return;
     this.effects.clear();
+    this.weather?.update();
     if (this.effect && this.pendingState && this.time.now - this.effect.started >= SHOT_TRAVEL_MS) {
       this.applyState(this.pendingState);
       this.pendingState = null;
@@ -126,6 +144,7 @@ export class GameScene extends Phaser.Scene {
     this.renderDrops();
     this.renderShot();
     this.renderMeteor();
+    this.renderDeaths();
   }
 
   private renderDrops(): void {
@@ -155,12 +174,28 @@ export class GameScene extends Phaser.Scene {
     const ctx = this.terrainCanvas.getContext('2d')!;
     const colors = surfaceColors[state.map];
     ctx.clearRect(0, 0, WIDTH, HEIGHT);
+    // Clip each surviving strip to the fixed underside, leaving real openings
+    // where the surface has been drilled through. Trim the edge strips exactly
+    // where the interpolated surface meets the bottom.
+    const strips: { x1: number; x2: number; t1: number; t2: number; b1: number; b2: number }[] = [];
+    for (let i = 0; i < state.terrain.length - 1; i++) {
+      const top1 = state.terrain[i], top2 = state.terrain[i + 1];
+      const bottom1 = state.terrainBottom[i], bottom2 = state.terrainBottom[i + 1];
+      const d1 = bottom1 - top1, d2 = bottom2 - top2;
+      if (d1 <= 0 && d2 <= 0) continue;
+      const cut = d1 / (d1 - d2);
+      const from = d1 > 0 ? 0 : cut, to = d2 > 0 ? 1 : cut;
+      const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
+      strips.push({x1:(i + from) * STEP, x2:(i + to) * STEP,
+        t1:lerp(top1, top2, from), t2:lerp(top1, top2, to),
+        b1:lerp(bottom1, bottom2, from), b2:lerp(bottom1, bottom2, to)});
+    }
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(0, state.terrain[0]);
-    state.terrain.forEach((y, i) => ctx.lineTo(i * STEP, y));
-    for (let i = state.terrain.length - 1; i >= 0; i--) ctx.lineTo(i * STEP, underside(state, i * STEP));
-    ctx.closePath();
+    for (const s of strips) {
+      ctx.moveTo(s.x1, s.t1); ctx.lineTo(s.x2, s.t2);
+      ctx.lineTo(s.x2, s.b2); ctx.lineTo(s.x1, s.b1); ctx.closePath();
+    }
     ctx.clip();
     const rock = this.textures.get(`${state.map}-rock`).getSourceImage() as HTMLImageElement;
     ctx.drawImage(rock, 0, 0, WIDTH, HEIGHT);
@@ -173,13 +208,11 @@ export class GameScene extends Phaser.Scene {
 
     const topPath = () => {
       ctx.beginPath();
-      ctx.moveTo(0, state.terrain[0]);
-      state.terrain.forEach((y, i) => ctx.lineTo(i * STEP, y));
+      for (const s of strips) { ctx.moveTo(s.x1, s.t1); ctx.lineTo(s.x2, s.t2); }
     };
     const bottomPath = () => {
       ctx.beginPath();
-      ctx.moveTo(0, underside(state, 0));
-      state.terrain.forEach((_, i) => ctx.lineTo(i * STEP, underside(state, i * STEP)));
+      for (const s of strips) { ctx.moveTo(s.x1, s.b1); ctx.lineTo(s.x2, s.b2); }
     };
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -192,6 +225,7 @@ export class GameScene extends Phaser.Scene {
     const next = random(state.seed ^ 0xa4739b31);
     for (let i = 0; i < 95; i++) {
       const x = 28 + next() * (WIDTH - 56);
+      if (!hasGroundAt(state, x)) continue;
       const y = groundAt(state.terrain, x) - 5;
       const height = 3 + next() * 7;
       ctx.strokeStyle = i % 7 === 0 ? colors.flower : colors.rim;
@@ -205,12 +239,14 @@ export class GameScene extends Phaser.Scene {
     for (const x of [365, 925]) this.paintWaterfall(ctx, state, x, colors.water);
     for (let i = 0; i < 8; i++) {
       const x = 70 + i * 160 + next() * 40;
+      if (!hasGroundAt(state, x)) continue;
       this.paintCoral(ctx, x, groundAt(state.terrain, x) - 3, colors.flower, 13 + next() * 13);
     }
     this.terrainTexture.refresh();
   }
 
   private paintWaterfall(ctx: CanvasRenderingContext2D, state: GameState, x: number, color: string): void {
+    if (!hasGroundAt(state, x)) return;
     const y = groundAt(state.terrain, x);
     const end = Math.min(HEIGHT + 40, underside(state, x) + 46);
     const gradient = ctx.createLinearGradient(x - 7, y, x + 8, y);
@@ -244,6 +280,21 @@ export class GameScene extends Phaser.Scene {
     const living = new Set(state.players.filter(p => p.hp > 0).map(p => p.id));
     for (const [id, image] of this.mobiles) {
       if (!living.has(id)) {
+        const player = state.players.find(player => player.id === id);
+        if (player?.fallen) {
+          if (this.falling.has(id)) continue;
+          this.falling.add(id);
+          this.labels.get(id)?.setVisible(false);
+          const pieces = Object.values(this.gear.get(id) ?? {});
+          this.tweens.add({ targets: [image, ...pieces], y: `+=${HEIGHT + 180 - image.y}`,
+            rotation: '+=0.6', duration: 750, ease: 'Quad.easeIn', onComplete: () => {
+              if (this.mobiles.get(id) !== image) return;
+              image.destroy(); this.mobiles.delete(id); this.labels.get(id)?.destroy(); this.labels.delete(id);
+              for (const piece of pieces) piece?.destroy();
+              this.gear.delete(id); this.falling.delete(id);
+            } });
+          continue;
+        }
         image.destroy(); this.mobiles.delete(id); this.labels.get(id)?.destroy(); this.labels.delete(id);
         for (const piece of Object.values(this.gear.get(id) ?? {})) piece?.destroy();
         this.gear.delete(id);
@@ -253,6 +304,10 @@ export class GameScene extends Phaser.Scene {
       if (player.hp <= 0) continue;
       let image = this.mobiles.get(player.id);
       let label = this.labels.get(player.id);
+      if (this.falling.delete(player.id)) {
+        this.tweens.killTweensOf([image, ...Object.values(this.gear.get(player.id) ?? {})]);
+        label?.setVisible(true);
+      }
       if (!image) {
         image = this.add.image(player.x, player.y - 28, `mobile-${player.mobile}`).setDisplaySize(112, 112);
         image.setDepth(10);
@@ -293,6 +348,13 @@ export class GameScene extends Phaser.Scene {
         label.setPosition(image.x, image.y - 53);
         label.setColor(player.id === state.activeId ? '#ffe0a0' : '#fff7dc');
       }
+      if (player.wetTurns > 0) {
+        this.effects.lineStyle(2, 0x83dfff, .75).strokeEllipse(image.x, image.y + 2, 94, 72);
+        for (let i = 0; i < 4; i++) {
+          const drift = Math.sin(this.time.now / 200 + i * 2) * 3;
+          this.effects.fillStyle(0x89e6ff, .75).fillCircle(image.x - 27 + i * 18 + drift, image.y - 40 + (i % 2) * 12, 2.5);
+        }
+      }
       if (player.id === state.activeId) {
         this.effects.lineStyle(2, 0xffd58d, .95);
         this.effects.strokeEllipse(image.x, player.y + 11, 85, 15);
@@ -309,22 +371,44 @@ export class GameScene extends Phaser.Scene {
     const g = this.effects;
     const teleport = this.effect.data.kind === 'teleport';
     const special = !!this.effect.data.special;
+    const mobile = this.effect.data.mobile;
     if (elapsed < SHOT_TRAVEL_MS) {
       const fraction = elapsed / SHOT_TRAVEL_MS;
+      const longestPath = Math.max(1, ...this.effect.data.paths.map(path => path.length - 1));
       for (const path of this.effect.data.paths) {
         if (!path.length) continue;
-        const index = Math.min(path.length - 1, Math.floor(fraction * (path.length - 1)));
+        const index = Math.min(path.length - 1, Math.floor(fraction * longestPath));
         const p = path[index];
-        g.fillStyle(teleport ? 0x9d71ef : special ? 0x53e5d3 : 0xffd280, .25); g.fillCircle(p.x, p.y, 15);
-        g.fillStyle(teleport ? 0xc6a2ff : special ? 0xbaffef : 0xfff1b7, 1); g.fillCircle(p.x, p.y, 5);
+        const previous = path[Math.max(0, index - 2)];
+        if (teleport) {
+          g.fillStyle(0x9d71ef, .25).fillCircle(p.x, p.y, 16);
+          g.lineStyle(2, 0xc6a2ff, .85).strokeCircle(p.x, p.y, 10);
+          g.fillStyle(0xffffff, .9).fillCircle(p.x, p.y, 4);
+        } else drawProjectile(g, mobile, special, p.x, p.y, previous.x, previous.y, elapsed);
       }
     } else {
       const expansion = Math.min(1, (elapsed - SHOT_TRAVEL_MS) / (SHOT_EFFECT_MS - SHOT_TRAVEL_MS));
+      for (const drop of this.effect.data.destroyedDrops ?? []) {
+        g.lineStyle(3 * (1 - expansion), 0xffd277, 1 - expansion).strokeCircle(drop.x, drop.y, 8 + 31 * expansion);
+        for (let i = 0; i < 6; i++) {
+          const angle = i * Math.PI / 3;
+          g.fillStyle(0xffe8ad, 1 - expansion).fillCircle(drop.x + Math.cos(angle) * (9 + 27 * expansion), drop.y + Math.sin(angle) * (9 + 27 * expansion), 3 * (1 - expansion));
+        }
+      }
       for (const impact of this.effect.data.impacts) {
-        g.lineStyle(4 * (1 - expansion), teleport ? 0xb887ff : special ? 0x76f5dc : 0xffe0a0, 1 - expansion);
-        g.strokeCircle(impact.x, impact.y, impact.radius * expansion);
+        if (teleport) g.lineStyle(4 * (1 - expansion), 0xb887ff, 1 - expansion).strokeCircle(impact.x, impact.y, impact.radius * expansion);
+        else {
+          drawImpact(g, mobile, special, impact.x, impact.y, impact.radius, expansion);
+          if (this.effect.data.weatherCharged && this.effect.data.weatherKind) drawWeatherImpact(g, this.effect.data.weatherKind, impact.x, impact.y, expansion);
+        }
       }
     }
+  }
+
+  private renderDeaths(): void {
+    this.deathEffects = this.deathEffects.filter(effect => this.time.now - effect.started < 1350);
+    for (const effect of this.deathEffects) drawDeath(this.effects, effect.mobile, effect.x, effect.y,
+      Math.max(0, (this.time.now - effect.started) / 1350), effect.fallen);
   }
 
   private renderMeteor(): void {

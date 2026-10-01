@@ -6,20 +6,23 @@ export const MAX_PLAYERS = 4;
 export const MOVE_SPEED = 88;
 export const TURN_MOVE_LIMIT = 175;
 export const MIN_POWER = 5;
+export const VOID_GROUND = HEIGHT + 160;
 
-export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'halo' | 'kestrel' | 'cinder' | 'aegis';
+export type MobileKind = 'loom' | 'manta' | 'borer' | 'vesper' | 'bramble' | 'halo' | 'kestrel' | 'cinder' | 'aegis' | 'gale' | 'tempest';
 export type OrdinaryMobileKind = Exclude<MobileKind, 'aegis'>;
 export type MapKind = 'cloud-reef' | 'clockwork-orchard' | 'glass-dunes';
 export type ItemKind = 'double' | 'repair' | 'teleport' | 'double-play';
 export type DropKind = ItemKind | 'special';
 export type MatchMode = 'ffa' | 'teams' | 'practice';
 export type EquipmentSlot = 'hat' | 'armor' | 'flag';
-export type EquipmentSet = 'attack' | 'defense' | 'health';
+export type EquipmentSet = 'attack' | 'defense' | 'health' | 'gold';
 export type Equipment = Record<EquipmentSlot, EquipmentSet | null>;
 export type Team = 0 | 1;
 export interface PlayerStats { shots: number; hits: number; damageDealt: number; damageTaken: number; itemsUsed: number; pickups: number; distanceMoved: number }
 export interface ItemDrop { id: string; item: DropKind; x: number; y: number; spawnedTurn: number }
 export interface MeteorEvent { turn: number; x: number; y: number; hitIds: string[] }
+export type WeatherKind = 'lightning' | 'storm' | 'rain';
+export interface WeatherState { kind: WeatherKind; x: number; width: number; startedTurn: number; direction: -1 | 1 }
 
 export interface PlayerState {
   id: string;
@@ -39,6 +42,10 @@ export interface PlayerState {
   walkedThisTurn: number;
   randomUsed: boolean;
   equipment: Equipment;
+  randomEquipment: Record<EquipmentSlot, boolean>;
+  fallen: boolean;
+  wetTurns: number;
+  wetOnTurn: number | null;
 }
 
 export interface GameState {
@@ -47,6 +54,7 @@ export interface GameState {
   hostId: string;
   players: PlayerState[];
   terrain: number[];
+  terrainBottom: number[];
   map: MapKind;
   seed: number;
   wind: number;
@@ -57,6 +65,7 @@ export interface GameState {
   message: string;
   mode: MatchMode;
   meteor: MeteorEvent | null;
+  weather: WeatherState | null;
   winnerTeam: Team | null;
   rematchReady: string[];
   lobbyReady: string[];
@@ -65,7 +74,7 @@ export interface GameState {
 
 export interface Point { x: number; y: number }
 export interface Impact extends Point { radius: number; damage: number }
-export interface ShotResult { kind: 'damage' | 'teleport'; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[] }
+export interface ShotResult { kind: 'damage' | 'teleport'; mobile: MobileKind; shooterId: string; paths: Point[][]; impacts: Impact[]; special?: boolean; hitIds?: string[]; destroyedDrops?: { id: string; x: number; y: number }[]; weatherCharged?: boolean; weatherKind?: WeatherKind; wetIds?: string[] }
 export interface MatchSummary { code: string; mode: MatchMode; winnerId: string | null; winnerTeam: Team | null; players: Pick<PlayerState, 'id' | 'name' | 'mobile' | 'team' | 'stats'>[] }
 
 export type ClientAction =
@@ -76,6 +85,7 @@ export type ClientAction =
   | { type: 'select'; mobile: OrdinaryMobileKind }
   | { type: 'equip'; slot: EquipmentSlot; set: EquipmentSet | null }
   | { type: 'random-mobile' }
+  | { type: 'random-equipment'; slot: EquipmentSlot }
   | { type: 'lobby-ready'; ready: boolean }
   | { type: 'start' }
   | { type: 'set-mode'; mode: MatchMode }
@@ -97,22 +107,33 @@ export type ServerEvent =
   | { type: 'match-summary'; summary: MatchSummary }
   | { type: 'error'; message: string };
 
-export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; damage: number; radius: number; crater: number; maxHp: number }> = {
-  loom: { label: 'Loom', color: 0xf67868, damage: 32, radius: 58, crater: 25, maxHp: 100 },
-  manta: { label: 'Manta', color: 0x4ab8af, damage: 22, radius: 42, crater: 16, maxHp: 100 },
-  borer: { label: 'Borer', color: 0xf5c35a, damage: 38, radius: 68, crater: 40, maxHp: 100 },
-  vesper: { label: 'Vesper', color: 0xb897ef, damage: 29, radius: 49, crater: 19, maxHp: 100 },
-  bramble: { label: 'Bramble', color: 0x9bcf83, damage: 27, radius: 55, crater: 18, maxHp: 100 },
-  halo: { label: 'Halo', color: 0x61d9ef, damage: 34, radius: 50, crater: 18, maxHp: 100 },
-  kestrel: { label: 'Kestrel', color: 0x68c6a7, damage: 20, radius: 40, crater: 16, maxHp: 100 },
-  cinder: { label: 'Cinder', color: 0xff9459, damage: 40, radius: 72, crater: 42, maxHp: 100 },
-  aegis: { label: 'Aegis', color: 0x72d9f4, damage: 34, radius: 59, crater: 24, maxHp: 150 },
+export const MOBILE_INFO: Record<MobileKind, { label: string; color: number; damage: number; defense: number; radius: number; crater: number; maxHp: number; category?: 'wind'; windBonus?: number }> = {
+  loom: { label: 'Loom', color: 0xf67868, damage: 33, defense: 1, radius: 58, crater: 25, maxHp: 100 },
+  manta: { label: 'Manta', color: 0x4ab8af, damage: 21, defense: 1, radius: 42, crater: 16, maxHp: 100 },
+  borer: { label: 'Borer', color: 0xf5c35a, damage: 34, defense: 2, radius: 68, crater: 40, maxHp: 100 },
+  vesper: { label: 'Vesper', color: 0xb897ef, damage: 30, defense: 1, radius: 49, crater: 19, maxHp: 100 },
+  bramble: { label: 'Bramble', color: 0x9bcf83, damage: 27, defense: 2, radius: 55, crater: 18, maxHp: 100 },
+  halo: { label: 'Halo', color: 0x61d9ef, damage: 31, defense: 2, radius: 50, crater: 18, maxHp: 100 },
+  kestrel: { label: 'Kestrel', color: 0x68c6a7, damage: 20, defense: 1, radius: 40, crater: 16, maxHp: 100 },
+  cinder: { label: 'Cinder', color: 0xff9459, damage: 39, defense: 1, radius: 72, crater: 42, maxHp: 100 },
+  aegis: { label: 'Aegis', color: 0x72d9f4, damage: 31, defense: 1, radius: 59, crater: 24, maxHp: 150 },
+  gale: { label: 'Gale', color: 0x94e4cc, damage: 28, defense: 1, radius: 56, crater: 20, maxHp: 100, category: 'wind', windBonus: 12 },
+  tempest: { label: 'Tempest', color: 0xb58cff, damage: 30, defense: 1, radius: 48, crater: 24, maxHp: 100, category: 'wind', windBonus: 12 },
 };
-export const ORDINARY_MOBILES: OrdinaryMobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder'];
+export const ORDINARY_MOBILES: OrdinaryMobileKind[] = ['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder', 'gale', 'tempest'];
 export const EQUIPMENT_SLOTS: EquipmentSlot[] = ['hat', 'armor', 'flag'];
 export const EQUIPMENT_SETS: EquipmentSet[] = ['attack', 'defense', 'health'];
-export function equipmentBonus(player: PlayerState, set: EquipmentSet): number {
-  return EQUIPMENT_SLOTS.filter(slot => player.equipment[slot] === set).length * 5;
+export function windDamageBonus(mobile: MobileKind, wind: number): number {
+  return Math.abs(wind) >= 7 ? MOBILE_INFO[mobile].windBonus ?? 0 : 0;
+}
+export function randomEquipmentFromRoll(roll: number): EquipmentSet {
+  if (roll < 0.05) return 'gold';
+  if (roll < 0.05 + 0.95 / 3) return 'attack';
+  if (roll < 0.05 + 2 * 0.95 / 3) return 'defense';
+  return 'health';
+}
+export function equipmentBonus(player: PlayerState, set: 'attack' | 'defense' | 'health'): number {
+  return EQUIPMENT_SLOTS.reduce((sum, slot) => sum + (player.equipment[slot] === 'gold' ? 3 : player.equipment[slot] === set ? 5 : 0), 0);
 }
 export function maxHpFor(player: PlayerState): number { return MOBILE_INFO[player.mobile].maxHp + equipmentBonus(player, 'health'); }
 export function randomMobileFromRoll(rareRoll: number, ordinaryRoll: number): MobileKind {
@@ -164,15 +185,36 @@ export function vehicleTilt(terrain: number[], x: number): number {
 }
 
 export function settlePlayers(state: GameState): void {
-  for (const player of state.players) player.y = groundAt(state.terrain, player.x) - 13;
+  for (const player of state.players) {
+    if (player.hp <= 0) continue;
+    if (!hasGroundAt(state, player.x)) {
+      player.stats.damageTaken += player.hp;
+      player.hp = 0;
+      player.fallen = true;
+      player.y = HEIGHT + 140;
+    } else player.y = groundAt(state.terrain, player.x) - 13;
+  }
+}
+
+export function hasGroundAt(state: GameState, x: number): boolean {
+  return groundAt(state.terrain, x) < groundAt(state.terrainBottom, x);
+}
+
+function touchesTerrain(state: GameState, x: number, y: number): boolean {
+  return hasGroundAt(state, x) && y >= groundAt(state.terrain, x) && y <= groundAt(state.terrainBottom, x);
+}
+
+function settleDrops(state: GameState): void {
+  state.drops = state.drops.filter(drop => hasGroundAt(state, drop.x));
+  for (const drop of state.drops) drop.y = groundAt(state.terrain, drop.x) - 24;
 }
 
 export function createState(code: string, hostId: string, name: string, mobile: MobileKind): GameState {
   return {
     code, phase: 'lobby', hostId,
-    players: [makePlayer(hostId, name, mobile)], terrain: [], map: 'cloud-reef',
+    players: [makePlayer(hostId, name, mobile)], terrain: [], terrainBottom: [], map: 'cloud-reef',
     seed: 0, wind: 0, turn: 0, activeId: null, deadline: 0, winnerId: null,
-    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', meteor: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
+    message: 'รอผู้เล่น 2–4 คน', mode: 'ffa', meteor: null, weather: null, winnerTeam: null, rematchReady: [], lobbyReady: [], drops: [],
   };
 }
 
@@ -180,7 +222,7 @@ export function makePlayer(id: string, name: string, mobile: MobileKind): Player
   return { id, name, mobile, x: 0, y: 0, hp: MOBILE_INFO[mobile].maxHp,
     items: { double: 1, repair: 1, teleport: 1, 'double-play': 1 }, doubleArmed: false, extraTurnArmed: false, connected: true, facing: 1,
     team: null, specialAvailable: true, stats: emptyStats(), walkedThisTurn: 0, randomUsed: false,
-    equipment: { hat: null, armor: null, flag: null } };
+    equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, fallen: false, wetTurns: 0, wetOnTurn: null };
 }
 
 export function startRound(state: GameState, seed: number, now: number): void {
@@ -192,10 +234,15 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.seed = seed;
   state.map = maps[seed % maps.length];
   state.terrain = makeTerrain(seed);
+  state.terrainBottom = state.terrain.map((y, i) => Math.min(HEIGHT - 25,
+    y + 173 + 23 * Math.sin(i * STEP / 85 + seed * 0.001) + 13 * Math.sin(i * STEP / 39)));
   const slots: Record<number, number[]> = { 2: [210, 1070], 3: [180, 640, 1100], 4: [160, 470, 810, 1120] };
   state.players.forEach((player, index) => {
     player.x = slots[state.players.length][index];
     player.hp = maxHpFor(player);
+    player.fallen = false;
+    player.wetTurns = 0;
+    player.wetOnTurn = null;
     player.items = { double: 1, repair: 1, teleport: 1, 'double-play': 1 };
     player.doubleArmed = false;
     player.extraTurnArmed = false;
@@ -210,6 +257,7 @@ export function startRound(state: GameState, seed: number, now: number): void {
   state.turn = 1;
   state.activeId = state.players[0].id;
   state.wind = windFor(seed, state.turn);
+  state.weather = weatherFor(seed, state.turn);
   state.deadline = state.mode === 'practice' ? 0 : now + TURN_MS;
   state.winnerId = null;
   state.winnerTeam = null;
@@ -225,8 +273,10 @@ export function returnToLobby(state: GameState): void {
   state.players = state.players.map(player => ({ ...makePlayer(player.id, player.name, 'loom'), connected: player.connected }));
   state.phase = 'lobby';
   state.terrain = [];
+  state.terrainBottom = [];
   state.seed = 0;
   state.wind = 0;
+  state.weather = null;
   state.turn = 0;
   state.activeId = null;
   state.deadline = 0;
@@ -248,6 +298,30 @@ export function windChangesOn(seed: number, turn: number): boolean {
   return random(seed ^ Math.imul(turn, 0x3c6ef372))() < 0.2;
 }
 
+export function weatherFor(seed: number, turn: number): WeatherState | null {
+  const next = random(seed ^ Math.imul(turn, 0x6d2b79f5));
+  if (next() >= .10) return null;
+  const kinds: WeatherKind[] = ['lightning', 'storm', 'rain'];
+  const kind = kinds[Math.floor(next() * kinds.length)];
+  const x = Math.round(100 + random(seed ^ Math.imul(turn, 0x4b1d5e71))() * (WIDTH - 200));
+  return { kind, x, width: 92, startedTurn: turn, direction: random(seed ^ Math.imul(turn, 0x1b873593))() < .5 ? -1 : 1 };
+}
+
+function advanceWeather(state: GameState): void {
+  if (state.weather && state.turn - state.weather.startedTurn >= 4) state.weather = null;
+  if (!state.weather) state.weather = weatherFor(state.seed, state.turn);
+}
+
+function finishWetTurn(state: GameState, player: PlayerState | undefined): void {
+  if (!player || player.wetOnTurn !== state.turn) return;
+  player.wetTurns = Math.max(0, player.wetTurns - 1);
+  player.wetOnTurn = null;
+}
+
+function startWetTurn(state: GameState, player: PlayerState | undefined): void {
+  if (player && player.wetTurns > 0) player.wetOnTurn = state.turn;
+}
+
 export const METEOR_CRATER_RADIUS = 91;
 export function meteorOn(seed: number, turn: number): boolean {
   return random(seed ^ Math.imul(turn, 0x7f4a7c15))() < 0.03;
@@ -263,9 +337,9 @@ export function dropMeteor(state: GameState, x: number): MeteorEvent {
     player.stats.damageTaken += before - player.hp;
     impact.hitIds.push(player.id);
   }
-  crater(state.terrain, x, METEOR_CRATER_RADIUS, 65);
+  crater(state.terrain, x, METEOR_CRATER_RADIUS, 65, state.terrainBottom);
   settlePlayers(state);
-  for (const drop of state.drops) drop.y = groundAt(state.terrain, drop.x) - 24;
+  settleDrops(state);
   state.meteor = impact;
   return impact;
 }
@@ -287,8 +361,15 @@ export function finishOrAdvance(state: GameState, now: number): void {
   if (state.mode === 'practice') {
     const trainee = state.players.find(player => player.id === state.hostId)!;
     const target = state.players.find(player => player.id !== state.hostId)!;
+    finishWetTurn(state, trainee);
+    if (!hasGroundAt(state, trainee.x) || !hasGroundAt(state, 1070)) {
+      resetPractice(state, state.seed, now);
+      return;
+    }
     trainee.hp = maxHpFor(trainee);
+    trainee.fallen = false;
     target.hp = maxHpFor(target);
+    target.fallen = false;
     target.x = 1070;
     target.y = groundAt(state.terrain, target.x) - 13;
     trainee.items = { double: 1, repair: 1, teleport: 1, 'double-play': 1 };
@@ -297,6 +378,8 @@ export function finishOrAdvance(state: GameState, now: number): void {
     trainee.walkedThisTurn = 0;
     state.activeId = trainee.id;
     state.turn++;
+    advanceWeather(state);
+    startWetTurn(state, trainee);
     if (windChangesOn(state.seed, state.turn)) {
       const nextWind = windFor(state.seed, state.turn);
       state.wind = nextWind === state.wind ? (nextWind === 8 ? 7 : nextWind + 1) : nextWind;
@@ -308,9 +391,11 @@ export function finishOrAdvance(state: GameState, now: number): void {
   if (finishIfDecided(state)) return;
   const oldIndex = state.players.findIndex(p => p.id === state.activeId);
   const previousPlayer = state.players[oldIndex];
+  finishWetTurn(state, previousPlayer);
   const extraTurn = !!previousPlayer?.extraTurnArmed;
   if (previousPlayer) previousPlayer.extraTurnArmed = false;
   state.turn++;
+  advanceWeather(state);
   state.meteor = null;
   if (windChangesOn(state.seed, state.turn)) {
     const nextWind = windFor(state.seed, state.turn);
@@ -331,7 +416,9 @@ export function finishOrAdvance(state: GameState, now: number): void {
   }
   state.activeId = nextId;
   if (!nextId) { state.deadline = 0; state.message = 'รอผู้เล่นกลับเข้าห้อง'; return; }
-  state.players.find(player => player.id === nextId)!.walkedThisTurn = 0;
+  const nextPlayer = state.players.find(player => player.id === nextId)!;
+  nextPlayer.walkedThisTurn = 0;
+  startWetTurn(state, nextPlayer);
   state.deadline = now + TURN_MS;
   state.message = state.meteor ? `อุกกาบาตตก! ${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง` : `${state.players.find(p => p.id === nextId)?.name ?? ''} กำลังเล็ง`;
   if (state.turn % 8 === 0) spawnItemDrop(state);
@@ -359,15 +446,17 @@ export function spawnItemDrop(state: GameState): ItemDrop | null {
   const item = dropKindForRoll(next());
   let x = 100 + next() * (WIDTH - 200);
   for (let attempt = 0; attempt < 12; attempt++) {
-    if (state.players.every(player => player.hp <= 0 || Math.abs(player.x - x) >= 85) && state.drops.every(drop => Math.abs(drop.x - x) >= 70)) break;
+    if (hasGroundAt(state, x) && state.players.every(player => player.hp <= 0 || Math.abs(player.x - x) >= 85) && state.drops.every(drop => Math.abs(drop.x - x) >= 70)) break;
     x = 100 + next() * (WIDTH - 200);
   }
+  if (!hasGroundAt(state, x)) return null;
   const drop = { id: `drop-${state.turn}`, item, x: Math.round(x), y: groundAt(state.terrain, x) - 24, spawnedTurn: state.turn };
   state.drops.push(drop);
   return drop;
 }
 
 export function collectItemDrop(state: GameState, player: PlayerState): DropKind | null {
+  if (player.hp <= 0) return null;
   const index = state.drops.findIndex(drop => Math.abs(player.x - drop.x) <= 34 && (drop.item === 'special' ? !player.specialAvailable : player.items[drop.item] === 0));
   if (index < 0) return null;
   const [drop] = state.drops.splice(index, 1);
@@ -377,12 +466,13 @@ export function collectItemDrop(state: GameState, player: PlayerState): DropKind
   return drop.item;
 }
 
-export function crater(terrain: number[], x: number, radius: number, depth: number): void {
+export function crater(terrain: number[], x: number, radius: number, depth: number, bottom?: number[]): void {
   for (let i = 0; i < terrain.length; i++) {
     const distance = Math.abs(i * STEP - x);
     if (distance > radius) continue;
     const shape = Math.sqrt(1 - (distance / radius) ** 2);
-    terrain[i] = Math.min(HEIGHT - 24, terrain[i] + depth * shape);
+    const next = terrain[i] + depth * shape;
+    terrain[i] = next >= (bottom?.[i] ?? HEIGHT - 25) ? VOID_GROUND : next;
   }
 }
 
@@ -403,7 +493,8 @@ export function movePlayer(state: GameState, playerId: string, direction: number
   player.stats.distanceMoved += moved;
   player.walkedThisTurn += moved;
   player.x = nextX;
-  player.y = groundAt(state.terrain, nextX) - 13;
+  settlePlayers(state);
+  if (player.hp <= 0) { finishOrAdvance(state, Date.now()); return true; }
   collectItemDrop(state, player);
   return true;
 }
@@ -419,6 +510,13 @@ function worldAngle(state: GameState, player: PlayerState, angle: number): numbe
   return (player.facing === 1 ? angle : 180 - angle) - tilt;
 }
 
+// Elevation above the horizontal in the direction the Mobile faces. This is
+// the actual launch heading; the slider angle is relative to the tilted chassis.
+export function launchElevation(state: GameState, player: PlayerState, angle: number): number {
+  const heading = worldAngle(state, player, angle);
+  return player.facing === 1 ? heading : 180 - heading;
+}
+
 function shotOrigin(state: GameState, player: PlayerState, radians: number): Point {
   const tilt = vehicleTilt(state.terrain, player.x);
   return {
@@ -427,8 +525,50 @@ function shotOrigin(state: GameState, player: PlayerState, radians: number): Poi
   };
 }
 
+interface TracedShot { path: Point[]; hit: Point | null; crossedWeather: boolean; hitTargetId?: string }
+// All Mobiles use the same gameplay hitbox, regardless of sprite or equipment.
+// 70% of the former 80 × 69 box, kept at its original vertical center.
+export const MOBILE_HITBOX = { halfWidth: 28, halfHeight: 24.15, centerYOffset: -30.5 } as const;
+const DROP_HALF_SIZE = 21;
 
-function trace(state: GameState, player: PlayerState, angle: number, power: number, offset: number, windFactor = 1): { path: Point[]; hit: Point | null } {
+function segmentBoxEntry(from: Point, to: Point, left: number, top: number, right: number, bottom: number): number | null {
+  let enter = 0, exit = 1;
+  for (const [start, delta, min, max] of [[from.x, to.x - from.x, left, right], [from.y, to.y - from.y, top, bottom]]) {
+    if (Math.abs(delta) < 1e-9) {
+      if (start < min || start > max) return null;
+    } else {
+      const a = (min - start) / delta, b = (max - start) / delta;
+      enter = Math.max(enter, Math.min(a, b));
+      exit = Math.min(exit, Math.max(a, b));
+      if (enter > exit) return null;
+    }
+  }
+  return enter;
+}
+
+function projectileCollision(state: GameState, shooter: PlayerState, from: Point, to: Point, includeShooter = false): { point: Point; targetId?: string } | null {
+  let earliest = 2;
+  let targetId: string | undefined;
+  for (const target of state.players) {
+    if (target.hp <= 0 || (!includeShooter && target.id === shooter.id) || (state.mode === 'teams' && target.team === shooter.team)) continue;
+    const centerY = target.y + MOBILE_HITBOX.centerYOffset;
+    const t = segmentBoxEntry(from, to, target.x - MOBILE_HITBOX.halfWidth, centerY - MOBILE_HITBOX.halfHeight,
+      target.x + MOBILE_HITBOX.halfWidth, centerY + MOBILE_HITBOX.halfHeight);
+    if (t !== null && t < earliest) { earliest = t; targetId = target.id; }
+  }
+  for (const drop of state.drops) {
+    const t = segmentBoxEntry(from, to, drop.x - DROP_HALF_SIZE, drop.y - DROP_HALF_SIZE,
+      drop.x + DROP_HALF_SIZE, drop.y + DROP_HALF_SIZE);
+    if (t !== null && t < earliest) { earliest = t; targetId = undefined; }
+  }
+  return earliest <= 1 ? { point: { x: from.x + (to.x - from.x) * earliest, y: from.y + (to.y - from.y) * earliest }, targetId } : null;
+}
+function touchesWeather(state: GameState, fromX: number, toX: number): boolean {
+  const weather = state.weather;
+  return !!weather && Math.max(fromX, toX) >= weather.x - weather.width / 2 && Math.min(fromX, toX) <= weather.x + weather.width / 2;
+}
+
+function trace(state: GameState, player: PlayerState, angle: number, power: number, offset: number, windFactor = 1, combat = true): TracedShot {
   const radians = (angle + offset) * Math.PI / 180;
   const speed = 280 + power * 4.2;
   const origin = shotOrigin(state, player, radians);
@@ -437,24 +577,32 @@ function trace(state: GameState, player: PlayerState, angle: number, power: numb
   let vx = Math.cos(radians) * speed;
   let vy = -Math.sin(radians) * speed;
   const path: Point[] = [{ x, y }];
+  let crossedWeather = false;
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += state.wind * 13 * windFactor * dt;
+    vx += (state.wind * windFactor + (crossedWeather && state.weather?.kind === 'storm' ? state.weather.direction * 2 : 0)) * 13 * dt;
     vy += 440 * dt;
+    const oldX = x, oldY = y;
     x += vx * dt;
     y += vy * dt;
+    if (touchesWeather(state, oldX, x)) crossedWeather = true;
     if (i % 3 === 0) path.push({ x, y });
-    if (x < 0 || x > WIDTH || y > HEIGHT) return { path, hit: null };
-    if (y >= groundAt(state.terrain, x)) {
+    if (x < 0 || x > WIDTH || y > HEIGHT) return { path, hit: null, crossedWeather };
+    const collision = combat ? projectileCollision(state, player, { x: oldX, y: oldY }, { x, y }) : null;
+    if (collision) {
+      path.push(collision.point);
+      return { path, hit: collision.point, crossedWeather, hitTargetId: collision.targetId };
+    }
+    if (touchesTerrain(state, x, y)) {
       const hit = { x, y: groundAt(state.terrain, x) };
       path.push(hit);
-      return { path, hit };
+      return { path, hit, crossedWeather };
     }
   }
-  return { path, hit: null };
+  return { path, hit: null, crossedWeather };
 }
 
-function traceManta(state: GameState, player: PlayerState, angle: number, power: number, special: boolean): { path: Point[]; hit: Point | null }[] {
+function traceManta(state: GameState, player: PlayerState, angle: number, power: number, special: boolean): TracedShot[] {
   const radians = angle * Math.PI / 180;
   const speed = 280 + power * 4.2;
   const origin = shotOrigin(state, player, radians);
@@ -463,38 +611,52 @@ function traceManta(state: GameState, player: PlayerState, angle: number, power:
   let vx = Math.cos(radians) * speed;
   let vy = -Math.sin(radians) * speed;
   const trunk: Point[] = [{ x, y }];
+  let crossedWeather = false;
   for (let i = 0; i < 600; i++) {
     const dt = 1 / 60;
-    vx += state.wind * 13 * dt;
+    vx += (state.wind + (crossedWeather && state.weather?.kind === 'storm' ? state.weather.direction * 2 : 0)) * 13 * dt;
     vy += 440 * dt;
+    const oldX = x, oldY = y;
     x += vx * dt; y += vy * dt;
+    if (touchesWeather(state, oldX, x)) crossedWeather = true;
     if (i % 3 === 0) trunk.push({ x, y });
-    if (x < 0 || x > WIDTH || y > HEIGHT) return [{ path: trunk, hit: null }];
-    if (y >= groundAt(state.terrain, x)) {
-      const hit = { x, y: groundAt(state.terrain, x) };
-      return [{ path: [...trunk, hit], hit }];
+    if (x < 0 || x > WIDTH || y > HEIGHT) return [{ path: trunk, hit: null, crossedWeather }];
+    const collision = projectileCollision(state, player, { x: oldX, y: oldY }, { x, y });
+    if (collision) {
+      trunk.push(collision.point);
+      return [{ path: trunk, hit: collision.point, crossedWeather, hitTargetId: collision.targetId }];
     }
-    if (vy < 0) continue;
-    const direction = vx < 0 ? -1 : 1;
+    if (!touchesTerrain(state, x, y)) continue;
+    // One parent flies all the way to the surface before bouncing apart.
+    y = groundAt(state.terrain, x);
+    trunk.push({ x, y });
     return (special ? [-1, 0, 1] : [-1, 1]).map(side => {
-      let childX = x, childY = y, childVx = vx + side * 95 * direction, childVy = -100;
-      const path = [...trunk, { x, y }];
+      let childX = x, childY = y - 3, childVx = side * 140, childVy = -190;
+      let childCrossedWeather = crossedWeather;
+      const path = [...trunk];
       for (let frame = 0; frame < 600; frame++) {
-        childVx += state.wind * 13 * dt;
+        childVx += (state.wind + (childCrossedWeather && state.weather?.kind === 'storm' ? state.weather.direction * 2 : 0)) * 13 * dt;
         childVy += 440 * dt;
+        const oldChildX = childX, oldChildY = childY;
         childX += childVx * dt; childY += childVy * dt;
+        if (touchesWeather(state, oldChildX, childX)) childCrossedWeather = true;
         if (frame % 3 === 0) path.push({ x: childX, y: childY });
-        if (childX < 0 || childX > WIDTH || childY > HEIGHT) return { path, hit: null };
-        if (childY >= groundAt(state.terrain, childX)) {
+        if (childX < 0 || childX > WIDTH || childY > HEIGHT) return { path, hit: null, crossedWeather: childCrossedWeather };
+        const childCollision = projectileCollision(state, player, { x: oldChildX, y: oldChildY }, { x: childX, y: childY }, true);
+        if (childCollision) {
+          path.push(childCollision.point);
+          return { path, hit: childCollision.point, crossedWeather: childCrossedWeather, hitTargetId: childCollision.targetId };
+        }
+        if (touchesTerrain(state, childX, childY)) {
           const hit = { x: childX, y: groundAt(state.terrain, childX) };
           path.push(hit);
-          return { path, hit };
+          return { path, hit, crossedWeather: childCrossedWeather };
         }
       }
-      return { path, hit: null };
+      return { path, hit: null, crossedWeather: childCrossedWeather };
     });
   }
-  return [{ path: trunk, hit: null }];
+  return [{ path: trunk, hit: null, crossedWeather }];
 }
 
 export function fireShot(state: GameState, playerId: string, angle: number, power: number, now: number, special = false): ShotResult {
@@ -502,52 +664,76 @@ export function fireShot(state: GameState, playerId: string, angle: number, powe
   if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < MIN_POWER || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
   const player = state.players.find(p => p.id === playerId)!;
   if (special && !player.specialAvailable) throw new Error('ท่าพิเศษใช้ไปแล้ว');
+  if (special && player.wetOnTurn === state.turn) throw new Error('รถเปียก ใช้ท่าพิเศษไม่ได้ในเทิร์นนี้');
   const info = MOBILE_INFO[player.mobile];
-  const result: ShotResult = { kind: 'damage', paths: [], impacts: [], special, hitIds: [] };
+  const result: ShotResult = { kind: 'damage', mobile: player.mobile, shooterId: playerId, paths: [], impacts: [], special, hitIds: [] };
   const heading = worldAngle(state, player, angle);
   const windFactor = player.mobile === 'vesper' || player.mobile === 'halo' ? special ? 0 : 0.45 : 1;
   const shots = player.mobile === 'manta' || player.mobile === 'kestrel' ? traceManta(state, player, heading, power, special) : [trace(state, player, heading, power, 0, windFactor)];
   const specialBlast: Record<MobileKind, { damage: number; radius: number; crater: number }> = {
-    loom: { damage: 52, radius: 38, crater: 16 },
-    manta: { damage: 20, radius: 37, crater: 14 },
-    borer: { damage: 50, radius: 88, crater: 54 },
-    vesper: { damage: 44, radius: 42, crater: 12 },
-    bramble: { damage: 34, radius: 58, crater: 12 },
-    halo: { damage: 48, radius: 44, crater: 16 },
-    kestrel: { damage: 21, radius: 39, crater: 15 },
-    cinder: { damage: 54, radius: 82, crater: 52 },
-    aegis: { damage: 46, radius: 66, crater: 28 },
+    loom: { damage: 48, radius: 38, crater: 16 },
+    manta: { damage: 19, radius: 37, crater: 14 },
+    borer: { damage: 44, radius: 88, crater: 54 },
+    vesper: { damage: 45, radius: 42, crater: 12 },
+    bramble: { damage: 32, radius: 58, crater: 12 },
+    halo: { damage: 43, radius: 44, crater: 16 },
+    kestrel: { damage: 19, radius: 39, crater: 15 },
+    cinder: { damage: 50, radius: 82, crater: 52 },
+    aegis: { damage: 42, radius: 66, crater: 28 },
+    gale: { damage: 40, radius: 65, crater: 27 },
+    tempest: { damage: 43, radius: 53, crater: 31 },
   };
   const blast = special ? specialBlast[player.mobile] : info;
   const hitIds = new Set<string>();
+  const wetIds = new Set<string>();
+  const destroyedDrops: { id: string; x: number; y: number }[] = [];
   for (const shot of shots) {
     result.paths.push(shot.path);
+    if (shot.crossedWeather) { result.weatherCharged = true; result.weatherKind = state.weather?.kind; }
     if (!shot.hit) continue;
     const multiplier = player.doubleArmed ? 2 : 1;
-    const impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + equipmentBonus(player, 'attack')) * multiplier };
+    const impact = { ...shot.hit, radius: blast.radius, damage: (blast.damage + equipmentBonus(player, 'attack') + windDamageBonus(player.mobile, state.wind)) * multiplier };
     result.impacts.push(impact);
     for (const target of state.players) {
       if (target.hp <= 0) continue;
       if (state.mode === 'teams' && target.team === player.team) continue;
-      const distance = Math.hypot(target.x - impact.x, target.y - impact.y);
+      const distance = shot.hitTargetId === target.id ? 0 : Math.hypot(target.x - impact.x, target.y - impact.y);
       if (distance < impact.radius + 14) {
         const falloff = Math.max(0.35, 1 - distance / (impact.radius + 14));
         const before = target.hp;
-        target.hp = Math.max(0, target.hp - Math.max(0, Math.round(impact.damage * falloff) - equipmentBonus(target, 'defense')));
+        const weatherBonus = shot.crossedWeather && state.weather?.kind === 'lightning' ? 5 : 0;
+        target.hp = Math.max(0, target.hp - Math.max(0, Math.round(impact.damage * falloff) - MOBILE_INFO[target.mobile].defense - equipmentBonus(target, 'defense') + weatherBonus));
         const dealt = before - target.hp;
         if (dealt > 0) {
           target.stats.damageTaken += dealt;
+          if (shot.crossedWeather && state.weather?.kind === 'rain') { target.wetTurns = 1; wetIds.add(target.id); }
           if (target.id !== player.id) { player.stats.damageDealt += dealt; hitIds.add(target.id); }
         }
       }
     }
-    crater(state.terrain, impact.x, blast.radius, blast.crater);
+    state.drops = state.drops.filter(drop => {
+      const distance = Math.hypot(drop.x - impact.x, drop.y - impact.y);
+      if (distance > impact.radius + DROP_HALF_SIZE) return true;
+      destroyedDrops.push({ id: drop.id, x: drop.x, y: drop.y });
+      return false;
+    });
+    const beforeFall = new Map(state.players.map(target => [target.id, target.hp]));
+    crater(state.terrain, impact.x, blast.radius, blast.crater, state.terrainBottom);
     settlePlayers(state);
-    for (const drop of state.drops) drop.y = groundAt(state.terrain, drop.x) - 24;
+    for (const target of state.players) {
+      const remainingHp = beforeFall.get(target.id) ?? 0;
+      if (remainingHp > 0 && target.fallen && target.id !== player.id && !(state.mode === 'teams' && target.team === player.team)) {
+        player.stats.damageDealt += remainingHp;
+        hitIds.add(target.id);
+      }
+    }
+    settleDrops(state);
   }
   player.stats.shots++;
   if (hitIds.size) player.stats.hits++;
   result.hitIds = [...hitIds];
+  result.wetIds = [...wetIds];
+  result.destroyedDrops = destroyedDrops;
   if (special && player.mobile === 'bramble' && player.hp > 0) player.hp = Math.min(maxHpFor(player), player.hp + 22);
   if (special) { player.specialAvailable = false; player.stats.itemsUsed++; }
   player.doubleArmed = false;
@@ -559,8 +745,9 @@ export function fireTeleport(state: GameState, playerId: string, angle: number, 
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
   if (!Number.isFinite(angle) || angle < 10 || angle > 80 || !Number.isFinite(power) || power < MIN_POWER || power > 100) throw new Error('มุมหรือพลังยิงไม่ถูกต้อง');
   const player = state.players.find(p => p.id === playerId)!;
+  if (player.wetOnTurn === state.turn) throw new Error('รถเปียก ใช้ไอเทมไม่ได้ในเทิร์นนี้');
   if (player.items.teleport < 1) throw new Error('ไอเทมหมดแล้ว');
-  const shot = trace(state, player, worldAngle(state, player, angle), power, 0);
+  const shot = trace(state, player, worldAngle(state, player, angle), power, 0, 1, false);
   if (!shot.hit || shot.hit.x < 58 || shot.hit.x > WIDTH - 58) throw new Error('กระสุนย้ายตำแหน่งต้องตกบนพื้นที่เล่น');
   if (state.players.some(other => other.id !== playerId && other.hp > 0 && Math.abs(other.x - shot.hit!.x) < 72)) throw new Error('จุดตกใกล้ผู้เล่นอื่นเกินไป');
   player.x = shot.hit.x;
@@ -569,12 +756,13 @@ export function fireTeleport(state: GameState, playerId: string, angle: number, 
   player.stats.itemsUsed++;
   collectItemDrop(state, player);
   finishOrAdvance(state, now);
-  return { kind: 'teleport', paths: [shot.path], impacts: [{ ...shot.hit, radius: 36, damage: 0 }] };
+  return { kind: 'teleport', mobile: player.mobile, shooterId: playerId, paths: [shot.path], impacts: [{ ...shot.hit, radius: 36, damage: 0 }] };
 }
 
 export function useItem(state: GameState, playerId: string, item: ItemKind, now: number): void {
   if (state.phase !== 'playing' || state.activeId !== playerId) throw new Error('ยังไม่ใช่เทิร์นของคุณ');
   const player = state.players.find(p => p.id === playerId)!;
+  if (player.wetOnTurn === state.turn) throw new Error('รถเปียก ใช้ไอเทมไม่ได้ในเทิร์นนี้');
   if (!['double', 'repair', 'teleport', 'double-play'].includes(item) || player.items[item] < 1) throw new Error('ไอเทมหมดแล้ว');
   if (item === 'double-play') {
     if (player.extraTurnArmed) throw new Error('เปิดใช้ Double Play แล้ว');

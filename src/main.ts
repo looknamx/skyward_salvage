@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { GameScene, MAP_BACKGROUNDS } from './GameScene.ts';
-import { equipmentBonus, maxHpFor, MIN_POWER, MOBILE_INFO, TURN_MOVE_LIMIT, TURN_MS } from '../shared/game.ts';
+import { equipmentBonus, launchElevation, maxHpFor, MIN_POWER, MOBILE_INFO, ORDINARY_MOBILES, TURN_MOVE_LIMIT, TURN_MS } from '../shared/game.ts';
 import type { ClientAction, EquipmentSet, EquipmentSlot, GameState, MatchSummary, MobileKind, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 import './style.css';
 
@@ -113,7 +113,7 @@ function toast(message: string): void {
   toastTimer = window.setTimeout(() => element.classList.remove('show'), 3200);
 }
 function pickMobile(kind: OrdinaryMobileKind): void {
-  if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId) && !gameState.players.find(player => player.id === playerId)?.randomUsed) send({ type: 'select', mobile: kind });
+  if (gameState?.phase === 'lobby' && !gameState.lobbyReady.includes(playerId)) send({ type: 'select', mobile: kind });
 }
 function directionIcon(direction: 'up' | 'down'): HTMLImageElement {
   const icon = document.createElement('img');
@@ -126,11 +126,11 @@ function directionIcon(direction: 'up' | 'down'): HTMLImageElement {
 type ReelId = 'mobile' | EquipmentSlot;
 type ReelOption = { value: string; label: string; image?: string };
 const reelOptions: Record<ReelId, ReelOption[]> = {
-  mobile: (['loom', 'manta', 'borer', 'vesper', 'bramble', 'halo', 'kestrel', 'cinder'] as OrdinaryMobileKind[]).map(value => ({ value, label: MOBILE_INFO[value].label, image: `/assets/characters/${value}.png` })),
+  mobile: [...ORDINARY_MOBILES.map(value => ({ value, label: MOBILE_INFO[value].label, image: `/assets/characters/${value}.png` })), { value: 'random', label: 'สุ่ม Mobile' }],
   hat: [], armor: [], flag: [],
 };
 for (const slot of ['hat', 'armor', 'flag'] as const) {
-  reelOptions[slot] = [{ value: 'none', label: 'ไม่ใส่' }, ...(['attack', 'defense', 'health'] as EquipmentSet[]).map(value => ({ value, label: value === 'attack' ? 'โจมตี +5' : value === 'defense' ? 'ป้องกัน +5' : 'เลือด +5', image: `/assets/equipment/${value}-${slot}.png` }))];
+  reelOptions[slot] = [{ value: 'none', label: 'ไม่ใส่' }, ...(['attack', 'defense', 'health'] as EquipmentSet[]).map(value => ({ value, label: value === 'attack' ? 'โจมตี +5' : value === 'defense' ? 'ป้องกัน +5' : 'เลือด +5', image: `/assets/equipment/${value}-${slot}.png` })), { value: 'random', label: 'สุ่มของสวมใส่' }];
 }
 const reelSelection: Record<ReelId, string> = { mobile: 'loom', hat: 'none', armor: 'none', flag: 'none' };
 const reelElements = {} as Record<ReelId, HTMLElement>;
@@ -139,9 +139,10 @@ function chooseReelValue(reel: ReelId, value: string): void {
   const me = gameState?.players.find(player => player.id === playerId);
   if (gameState?.phase !== 'lobby' || !me || gameState.lobbyReady.includes(playerId) || reelSelection[reel] === value) return;
   if (reel === 'mobile') {
-    if (me.randomUsed) return;
-    pickMobile(value as OrdinaryMobileKind);
-  } else send({ type: 'equip', slot: reel, set: value === 'none' ? null : value as EquipmentSet });
+    if (value === 'random') send({ type: 'random-mobile' });
+    else pickMobile(value as OrdinaryMobileKind);
+  } else if (value === 'random') send({ type: 'random-equipment', slot: reel });
+  else send({ type: 'equip', slot: reel, set: value === 'none' ? null : value as EquipmentSet });
   playEffect(slotSound);
   reelSelection[reel] = value;
   const element = reelElements[reel];
@@ -149,7 +150,7 @@ function chooseReelValue(reel: ReelId, value: string): void {
   void element.offsetWidth;
   element.classList.add('is-spinning');
   window.setTimeout(() => element.classList.remove('is-spinning'), 280);
-  paintReel(reel, false, gameState.lobbyReady.includes(playerId));
+  paintReel(reel, gameState.lobbyReady.includes(playerId));
 }
 function stepReel(reel: ReelId, direction: number): void {
   const element = reelElements[reel];
@@ -158,10 +159,10 @@ function stepReel(reel: ReelId, direction: number): void {
   const index = options.findIndex(option => option.value === reelSelection[reel]);
   chooseReelValue(reel, options[(index + direction + options.length) % options.length].value);
 }
-function paintReel(reel: ReelId, masked: boolean, locked: boolean): void {
+function paintReel(reel: ReelId, locked: boolean): void {
   const element = reelElements[reel];
-  element.dataset.locked = String(locked || masked);
-  element.classList.toggle('is-locked', locked || masked);
+  element.dataset.locked = String(locked);
+  element.classList.toggle('is-locked', locked);
   const options = reelOptions[reel];
   const index = Math.max(0, options.findIndex(option => option.value === reelSelection[reel]));
   const windowElement = element.querySelector<HTMLElement>('.slot-reel-window')!;
@@ -170,20 +171,17 @@ function paintReel(reel: ReelId, masked: boolean, locked: boolean): void {
     const choice = document.createElement('button');
     choice.type = 'button';
     choice.className = `slot-choice${offset === 0 ? ' is-selected' : ''}`;
-    choice.disabled = locked || masked;
+    choice.disabled = locked;
     choice.setAttribute('aria-pressed', String(offset === 0));
-    choice.setAttribute('aria-label', masked ? 'ผลสุ่มจะเปิดเผยเมื่อเริ่มเกม' : `${option.label}${offset === 0 ? ' เลือกอยู่' : ''}`);
-    if (masked) {
-      const mystery = document.createElement('strong'); mystery.className = 'slot-mystery'; mystery.textContent = offset === 0 ? '?' : '✦'; choice.append(mystery);
-    } else {
-      if (option.image) { const image = document.createElement('img'); image.src = option.image; image.alt = ''; choice.append(image); }
-      else { const empty = document.createElement('strong'); empty.className = 'slot-empty'; empty.textContent = '—'; choice.append(empty); }
-      const caption = document.createElement('span'); caption.textContent = option.label; choice.append(caption);
-    }
+    choice.setAttribute('aria-label', `${option.label}${offset === 0 ? ' เลือกอยู่' : ''}`);
+    if (option.image) { const image = document.createElement('img'); image.src = option.image; image.alt = ''; choice.append(image); }
+    else { const empty = document.createElement('strong'); empty.className = option.value === 'random' ? 'slot-mystery' : 'slot-empty'; empty.textContent = option.value === 'random' ? '?' : '—'; choice.append(empty); }
+    const caption = document.createElement('span'); caption.textContent = option.label; choice.append(caption);
+    if (option.value === 'random') choice.title = 'รู้ผลเมื่อเข้าเกม';
     choice.addEventListener('click', () => { if (Date.now() >= suppressReelClickUntil) chooseReelValue(reel, option.value); });
     return choice;
   }));
-  element.querySelectorAll<HTMLButtonElement>('.slot-step').forEach(button => { button.disabled = locked || masked; });
+  element.querySelectorAll<HTMLButtonElement>('.slot-step').forEach(button => { button.disabled = locked; });
 }
 const reelLabels: Record<ReelId, string> = { mobile: 'รถ', hat: 'หมวก', armor: 'เกราะ', flag: 'ธง' };
 for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) {
@@ -205,12 +203,8 @@ for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) {
   windowElement.addEventListener('pointercancel', () => { pointerStart = null; });
   windowElement.addEventListener('wheel', event => { event.preventDefault(); stepReel(reel, event.deltaY > 0 ? 1 : -1); }, { passive: false });
   element.append(heading, up, windowElement, down); $('slot-reels').append(element); reelElements[reel] = element;
-  paintReel(reel, false, false);
+  paintReel(reel, false);
 }
-$('random-mobile').addEventListener('click', () => {
-  const me = gameState?.players.find(player => player.id === playerId);
-  if (gameState?.phase === 'lobby' && me && !me.randomUsed && !gameState.lobbyReady.includes(playerId)) send({ type: 'random-mobile' });
-});
 
 function userName(): string {
   const value = $('name') as HTMLInputElement;
@@ -257,8 +251,11 @@ $('again').addEventListener('click', () => {
   location.href = '/';
 });
 const practiceMobileSelect = $('practice-mobile-in-game') as HTMLSelectElement;
-for (const [kind, info] of Object.entries(MOBILE_INFO)) {
-  const option = document.createElement('option'); option.value = kind; option.textContent = `${info.label} · ${info.maxHp} HP`; practiceMobileSelect.append(option);
+for (const select of [practiceMobileSelect, $('practice-mobile') as HTMLSelectElement]) {
+  select.replaceChildren();
+  for (const [kind, info] of Object.entries(MOBILE_INFO)) {
+    const option = document.createElement('option'); option.value = kind; option.textContent = `${info.label} · ${info.maxHp} HP`; select.append(option);
+  }
 }
 practiceMobileSelect.addEventListener('change', () => { releaseMovement(); endCharge(false); send({ type: 'practice-mobile', mobile: practiceMobileSelect.value as MobileKind }); });
 $('practice-reset').addEventListener('click', () => { closeSettings(); send({ type: 'reset-practice' }); });
@@ -273,10 +270,12 @@ const angleInput = $('angle') as HTMLInputElement;
 const powerMeter = $('power') as HTMLProgressElement;
 const fireButton = $('fire') as HTMLButtonElement;
 function updateAim(): void {
-  $('angle-value').textContent = `${angleInput.value}°`;
+  const me = gameState?.players.find(player => player.id === playerId);
+  const shownAngle = me && gameState?.terrain.length ? launchElevation(gameState, me, Number(angleInput.value)) : Number(angleInput.value);
+  $('angle-value').textContent = `${Math.round(shownAngle)}°`;
   $('power-value').textContent = `${Math.round(powerMeter.value)}%`;
-  const facing = gameState?.players.find(player => player.id === playerId)?.facing ?? 1;
-  $('dial-needle').style.transform = `translateX(-50%) rotate(${facing * (90 - Number(angleInput.value))}deg)`;
+  const facing = me?.facing ?? 1;
+  $('dial-needle').style.transform = `translateX(-50%) rotate(${facing * (90 - shownAngle)}deg)`;
 }
 angleInput.addEventListener('input', updateAim);
 updateAim();
@@ -579,13 +578,12 @@ function render(state: GameState): void {
     const isHost = state.hostId === playerId;
     const isReady = state.lobbyReady.includes(playerId);
     if (me) {
-      reelSelection.mobile = me.mobile;
-      for (const slot of ['hat', 'armor', 'flag'] as const) reelSelection[slot] = me.equipment[slot] ?? 'none';
+      reelSelection.mobile = me.randomUsed ? 'random' : me.mobile;
+      for (const slot of ['hat', 'armor', 'flag'] as const) reelSelection[slot] = me.randomEquipment[slot] ? 'random' : me.equipment[slot] ?? 'none';
     }
-    for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) paintReel(reel, reel === 'mobile' && !!me?.randomUsed, isReady || !me?.connected);
-    ($('random-mobile') as HTMLButtonElement).disabled = isReady || !me?.connected || !!me.randomUsed;
-    $('random-mobile').textContent = me?.randomUsed ? 'สุ่มแล้ว' : 'สุ่ม Mobile';
+    for (const reel of ['mobile', 'hat', 'armor', 'flag'] as ReelId[]) paintReel(reel, isReady || !me?.connected);
     $('equipment-stats').textContent = me ? `โจมตี +${equipmentBonus(me, 'attack')} · ป้องกัน +${equipmentBonus(me, 'defense')} · เลือด +${equipmentBonus(me, 'health')}` : '';
+    if (me && Object.values(me.randomEquipment).some(Boolean)) $('equipment-stats').textContent += ' · รอผลสุ่มของสวมใส่';
     $('lobby-players').replaceChildren(...state.players.map((player, index) => {
       const element = document.createElement('div');
       element.className = 'lobby-player';
@@ -622,7 +620,7 @@ function render(state: GameState): void {
     const head = document.createElement('div'); head.className = 'player-head';
     const name = document.createElement('b'); name.textContent = player.name + (state.mode === 'teams' ? ` · ${player.team === 0 ? 'A' : 'B'}` : '');
     const maxHp = maxHpFor(player);
-    const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/${maxHp}`;
+    const meta = document.createElement('small'); meta.textContent = `${MOBILE_INFO[player.mobile].label} ${player.hp}/${maxHp}${player.wetTurns ? ' · เปียก' : ''}`;
     head.append(name, meta);
     const track = document.createElement('div'); track.className = 'hp-track';
     const fill = document.createElement('div'); fill.className = 'hp-fill'; fill.style.width = `${100 * player.hp / maxHp}%`;
@@ -637,6 +635,7 @@ function render(state: GameState): void {
   const me = state.players.find(player => player.id === playerId);
   if (me && state.mode === 'practice') practiceMobileSelect.value = me.mobile;
   const canAct = socket?.readyState === WebSocket.OPEN && !resumePending && state.phase === 'playing' && state.activeId === playerId && !!me && me.hp > 0;
+  const itemLocked = !!me && me.wetOnTurn === state.turn;
   if (canAct && state.turn !== lastOwnTurn) {
     lastOwnTurn = state.turn;
     endCharge(false);
@@ -647,11 +646,11 @@ function render(state: GameState): void {
     updateAim();
   }
   for (const id of ['angle', 'fire']) ($<HTMLInputElement | HTMLButtonElement>(id)).disabled = !canAct;
-  ($('item-special') as HTMLButtonElement).disabled = !canAct || !me?.specialAvailable;
+  ($('item-special') as HTMLButtonElement).disabled = !canAct || itemLocked || !me?.specialAvailable;
   $('count-special').textContent = me?.specialAvailable ? '1' : '0';
   document.querySelectorAll<HTMLButtonElement>('#touch-dpad button').forEach(button => { button.disabled = !canAct; });
   for (const item of ['double', 'repair', 'teleport', 'double-play'] as const) {
-    ($<HTMLButtonElement>(`item-${item}`)).disabled = !canAct || !me?.items[item] || (item === 'double' && me.doubleArmed) || (item === 'double-play' && !!me?.extraTurnArmed);
+    ($<HTMLButtonElement>(`item-${item}`)).disabled = !canAct || itemLocked || !me?.items[item] || (item === 'double' && me.doubleArmed) || (item === 'double-play' && !!me?.extraTurnArmed);
     $(`count-${item}`).textContent = String(me?.items[item] ?? 0);
   }
   $('item-double').classList.toggle('selected', !!me?.doubleArmed);

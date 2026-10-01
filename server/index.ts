@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, turnPlayer, useItem } from '../shared/game.ts';
+import { createState, EQUIPMENT_SETS, EQUIPMENT_SLOTS, finishOrAdvance, fireShot, fireTeleport, makePlayer, MAX_PLAYERS, maxHpFor, MOBILE_INFO, movePlayer, ORDINARY_MOBILES, randomEquipmentFromRoll, randomMobileFromRoll, resetPractice, returnToLobby, selectPracticeMobile, startRound, turnPlayer, useItem } from '../shared/game.ts';
 import type { ClientAction, GameState, MatchSummary, OrdinaryMobileKind, ServerEvent } from '../shared/game.ts';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -35,7 +35,7 @@ function stateBroadcast(state: GameState): void {
     if (client.code !== state.code) continue;
     if (state.phase !== 'lobby') { send(socket, { type: 'state', state }); continue; }
     const privateState = { ...state, players: state.players.map(player => player.id === client.id ? player : {
-      ...player, equipment: { hat: null, armor: null, flag: null }, hp: MOBILE_INFO[player.mobile].maxHp,
+      ...player, equipment: { hat: null, armor: null, flag: null }, randomEquipment: { hat: false, armor: false, flag: false }, hp: MOBILE_INFO[player.mobile].maxHp,
     }) };
     send(socket, { type: 'state', state: privateState });
   }
@@ -200,19 +200,26 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
   if (action.type === 'select') {
     if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยน Mobile');
-    if (player.randomUsed) throw new Error('สุ่ม Mobile แล้ว ไม่สามารถเปลี่ยนคันได้');
     player.mobile = mobile(action.mobile);
+    player.randomUsed = false;
     player.hp = maxHpFor(player);
   } else if (action.type === 'equip') {
     if (state.phase !== 'lobby') throw new Error('เปลี่ยนของสวมใส่ได้ในห้องเตรียมเกมเท่านั้น');
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยนของสวมใส่');
     if (!EQUIPMENT_SLOTS.includes(action.slot) || (action.set !== null && !EQUIPMENT_SETS.includes(action.set))) throw new Error('ของสวมใส่ไม่ถูกต้อง');
     player.equipment[action.slot] = action.set;
+    player.randomEquipment[action.slot] = false;
+    player.hp = maxHpFor(player);
+  } else if (action.type === 'random-equipment') {
+    if (state.phase !== 'lobby') throw new Error('สุ่มของสวมใส่ได้ในห้องเตรียมเกมเท่านั้น');
+    if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนเปลี่ยนของสวมใส่');
+    if (!EQUIPMENT_SLOTS.includes(action.slot)) throw new Error('ช่องของสวมใส่ไม่ถูกต้อง');
+    player.randomEquipment[action.slot] = true;
+    player.equipment[action.slot] = null;
     player.hp = maxHpFor(player);
   } else if (action.type === 'random-mobile') {
     if (state.phase !== 'lobby') throw new Error('เริ่มเกมแล้ว');
     if (state.lobbyReady.includes(current.id)) throw new Error('ยกเลิกพร้อมก่อนสุ่ม Mobile');
-    if (player.randomUsed) throw new Error('สุ่ม Mobile ได้ครั้งเดียวต่อห้อง');
     player.randomUsed = true;
   } else if (action.type === 'lobby-ready') {
     if (state.phase !== 'lobby' || state.hostId === current.id) throw new Error('ผู้เล่นในห้องเท่านั้นที่กดพร้อมได้');
@@ -228,9 +235,14 @@ function handleAction(ws: WebSocket, action: ClientAction): void {
     if (state.hostId !== current.id) throw new Error('เจ้าของห้องเท่านั้นที่เริ่มได้');
     if (state.phase !== 'lobby') throw new Error('เกมเริ่มไปแล้ว');
     startRound(state, randomBytes(4).readUInt32LE(0), Date.now());
-    for (const entrant of state.players.filter(candidate => candidate.randomUsed)) {
-      const rolls = randomBytes(8);
-      entrant.mobile = randomMobileFromRoll(rolls.readUInt32LE(0) / 4294967296, rolls.readUInt32LE(4) / 4294967296);
+    for (const entrant of state.players) {
+      if (entrant.randomUsed) {
+        const rolls = randomBytes(8);
+        entrant.mobile = randomMobileFromRoll(rolls.readUInt32LE(0) / 4294967296, rolls.readUInt32LE(4) / 4294967296);
+      }
+      for (const slot of EQUIPMENT_SLOTS) {
+        if (entrant.randomEquipment[slot]) entrant.equipment[slot] = randomEquipmentFromRoll(randomBytes(4).readUInt32LE(0) / 4294967296);
+      }
       entrant.hp = maxHpFor(entrant);
     }
     summarySent.delete(state.code);
@@ -362,6 +374,7 @@ setInterval(() => {
         const picked = oldDrops.find(drop => !state.drops.some(currentDrop => currentDrop.id === drop.id));
         if (picked) broadcast(state.code, { type: 'item-picked', item: picked.item, playerId: input.playerId });
         stateBroadcast(state);
+        broadcastSummaryIfFinished(state);
       }
     }
   }

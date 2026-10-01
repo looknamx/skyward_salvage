@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#15263b"><title>Skyward Salvage — เปิด / ปิดเกม</title>
+  <link rel="icon" href="/favicon.png">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
+    :root{--ink:#f8efd8;--muted:#aec6d0;--mint:#78d6c6;--gold:#ffd17d;--coral:#f57d69;--panel:#13273c; font-family:Kanit,system-ui,sans-serif;color:var(--ink);color-scheme:dark}
+    *{box-sizing:border-box}body{margin:0;min-height:100dvh;background:#101d31;display:grid;place-items:center;padding:28px;background-image:linear-gradient(115deg,#0b1b30ed,#0b1b3066),url('/scene.png');background-size:cover;background-position:center}
+    main{width:min(660px,100%);border:1px solid #88b4ba80;border-radius:28px;padding:clamp(26px,5vw,48px);background:linear-gradient(145deg,#172e45ed,#112135f5);box-shadow:0 30px 100px #071423aa;backdrop-filter:blur(15px)}
+    header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:30px}.label{font:600 11px Outfit,sans-serif;letter-spacing:.18em;color:var(--mint)}.badge{display:flex;gap:8px;align-items:center;font-size:12px;border:1px solid #739ba855;border-radius:30px;padding:7px 11px;color:var(--muted)}.dot{width:7px;height:7px;border-radius:50%;background:currentColor}.badge.online{color:var(--mint)}.badge.busy{color:var(--gold)}
+    h1{font:800 clamp(38px,8vw,64px)/.98 Outfit,sans-serif;letter-spacing:-.04em;margin:0}h1 span{display:block;color:var(--coral)}.subtitle{color:var(--muted);font-size:15px;line-height:1.7;margin:20px 0 28px}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:14px}button{font:600 18px Kanit,sans-serif;cursor:pointer;border-radius:15px;min-height:108px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;border:1px solid transparent;transition:transform .15s,filter .15s}button:hover:enabled{transform:translateY(-2px);filter:brightness(1.08)}button:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:5px}button:disabled{opacity:.35;cursor:not-allowed}button svg{width:24px;height:24px}#start{color:#0d2f35;background:linear-gradient(135deg,#91e5cd,#58bdb0);box-shadow:0 5px 0 #286b69}#stop{color:#ffb3a6;background:#f57d6914;border-color:#f57d6955;box-shadow:0 5px 0 #091c2d}
+    .status{font-size:14px;min-height:52px;margin:24px 0 14px;line-height:1.7;color:var(--muted)}.status.error{color:#ffb3a6}.services{display:flex;gap:16px;flex-wrap:wrap;padding-bottom:22px;border-bottom:1px solid #7e9ba330}.service{display:flex;align-items:center;gap:6px;color:#829eae;font:500 11px Outfit,sans-serif}.service.on{color:var(--mint)}
+    .entry{margin-top:22px}.entry small{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}.entry a{color:var(--gold);text-decoration:none;overflow-wrap:anywhere;font:500 15px/1.6 Outfit,sans-serif}.entry a:hover{text-decoration:underline}.note{margin:25px 0 0;color:#8faab8;font-size:12px;line-height:1.7}
+    @media(max-width:430px){body{padding:16px}header{margin-bottom:24px}.label{font-size:10px;letter-spacing:.12em}main{border-radius:22px}.services{gap:10px}button{min-height:96px}}
+    @media(prefers-reduced-motion:reduce){button{transition:none}}
+  </style>
+</head>
+<body><main>
+  <header><span class="label">CAPTAIN'S CONTROL ROOM</span><span class="badge" id="badge"><i class="dot"></i><span id="badge-text">กำลังตรวจสอบ</span></span></header>
+  <h1>SKYWARD<span>SALVAGE</span></h1>
+  <p class="subtitle">พร้อมออกเดินทางเมื่อไหร่ เปิดเกมแล้วส่งลิงก์ให้เพื่อน<br>จบการเล่นแล้วปิดระบบได้จากหน้านี้</p>
+  <div class="actions">
+    <button id="start" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16l13-8z" fill="currentColor"/></svg>เปิดเกม</button>
+    <button id="stop" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>ปิดเกม</button>
+  </div>
+  <p class="status" id="status" role="status" aria-live="polite">กำลังตรวจสถานะระบบ…</p>
+  <div class="services" aria-label="สถานะการเชื่อมต่อ">
+    <span class="service" data-service="game"><i class="dot"></i>GAME</span>
+    <span class="service" data-service="cloudflare"><i class="dot"></i>CLOUDFLARE</span>
+    <span class="service" data-service="gateway"><i class="dot"></i>GATEWAY</span>
+    <span class="service" data-service="ngrok"><i class="dot"></i>NGROK</span>
+  </div>
+  <div class="entry"><small>ลิงก์เข้าเกมสำหรับคุณและเพื่อน</small><a id="game-link" target="_blank" rel="noopener">ยังไม่ได้ตั้งลิงก์</a></div>
+  <p class="note">บันทึกหน้านี้ใน Bookmark ได้เลย · ใช้บนคอมที่เปิดเกม<br>ปิดเกมจะสิ้นสุดห้องที่กำลังเล่น กรุณาเปิดคอมไว้ตลอดการเล่น</p>
+</main>
+<script>
+  const controlToken='__CONTROL_TOKEN__';
+  const start=document.querySelector('#start'),stop=document.querySelector('#stop'),statusText=document.querySelector('#status'),badge=document.querySelector('#badge'),badgeText=document.querySelector('#badge-text'),link=document.querySelector('#game-link');
+  let localBusy=false,refreshing=false;
+  async function refresh(){
+    if(refreshing)return;refreshing=true;
+    try{
+      const response=await fetch('/api/status');if(!response.ok)throw Error();const state=await response.json();
+      const busy=state.busy||localBusy;
+      start.disabled=!!busy||state.online;stop.disabled=!!busy||!state.partial;
+      badge.className='badge '+(busy?'busy':state.online?'online':'');
+      badgeText.textContent=busy?'กำลังดำเนินการ':state.online?'ออนไลน์':state.partial?'เชื่อมต่อไม่ครบ':'ออฟไลน์';
+      statusText.classList.toggle('error',!!state.error);
+      statusText.textContent=state.error||(busy==='start'?'กำลังเปิดเกมและเชื่อมต่อ… อาจใช้เวลาประมาณหนึ่งนาที':busy==='stop'?'กำลังปิดเกมและการเชื่อมต่อ…':state.online?'เกมพร้อมแล้ว เปิดลิงก์ด้านล่างหรือส่งให้เพื่อนได้เลย':state.partial?'ระบบเชื่อมต่อไม่ครบ กดเปิดเกมเพื่อเชื่อมต่อใหม่ หรือปิดเกมเพื่อหยุดระบบ':'เกมปิดอยู่ กดเปิดเกมเพื่อเริ่มเล่น');
+      for(const el of document.querySelectorAll('[data-service]'))el.classList.toggle('on',!!state.services[el.dataset.service]);
+      if(state.url){link.href=state.url;link.textContent=state.url.replace('https://','');}
+    }catch{start.disabled=stop.disabled=true;badge.className='badge';badgeText.textContent='เชื่อมต่อไม่ได้';statusText.textContent='แผงควบคุมยังไม่พร้อม กรุณาเปิด Start-ControlPanel.ps1 แล้วรีเฟรชหน้านี้';}
+    finally{refreshing=false;}
+  }
+  async function action(name){
+    if(localBusy)return;localBusy=name;start.disabled=stop.disabled=true;
+    statusText.textContent=name==='start'?'กำลังเปิดเกม…':'กำลังปิดเกม…';
+    try{const response=await fetch('/api/'+name,{method:'POST',headers:{'X-Control-Token':controlToken}});if(!response.ok)throw Error();}
+    catch{statusText.textContent='ส่งคำสั่งไม่สำเร็จ กรุณาลองอีกครั้ง';}
+    finally{localBusy=false;await refresh();}
+  }
+  start.addEventListener('click',()=>action('start'));stop.addEventListener('click',()=>action('stop'));
+  refresh();setInterval(refresh,2500);
+</script></body></html>

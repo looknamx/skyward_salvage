@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#13253d" />
+    <meta name="description" content="Skyward Salvage Wiki: ดูค่าสถานะ ดาเมจ DEF และท่าพิเศษของ Mobile ทุกคัน" />
+    <title>Mobile Field Guide · Skyward Salvage</title>
+    <link rel="stylesheet" href="/wiki.css" />
+    <script src="/wiki.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="/" aria-label="กลับไปหน้าเกม Skyward Salvage"><span class="wordmark-symbol">S</span><span>SKYWARD <b>SALVAGE</b></span></a>
+      <nav aria-label="เมนูหลัก"><a href="#mobiles">Mobile</a><a href="#combat">วิธีคิดดาเมจ</a><a class="nav-play" href="/">เข้าเกม <span aria-hidden="true">↗</span></a></nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="hero-inner">
+          <div class="hero-copy">
+            <p class="overline"><span class="tiny-diamond" aria-hidden="true"></span> SKYWARD SALVAGE · FIELD GUIDE</p>
+            <h1 id="hero-title">รู้จักรถของคุณ<br><em>ก่อนออกศึก</em></h1>
+            <p class="hero-intro">เลือก Mobile ที่เข้ากับสไตล์ยิงของคุณ เปรียบเทียบพลังโจมตี ระยะระเบิด การขุดพื้น และท่าพิเศษได้ในหน้าเดียว</p>
+            <div class="hero-actions"><a class="button button-primary" href="#mobiles">ดู Mobile ทั้งหมด <span aria-hidden="true">↓</span></a><a class="button button-ghost" href="#combat">อ่านวิธีคิดดาเมจ</a></div>
+            <div class="hero-facts" aria-label="ข้อมูลเกม"><div><strong>11</strong><span>Mobile</span></div><div><strong>10</strong><span>รถทั่วไป</span></div><div><strong>1</strong><span>รถหายาก</span></div></div>
+          </div>
+          <div class="hero-visual" aria-hidden="true"><span class="hero-orbit hero-orbit-one"></span><span class="hero-orbit hero-orbit-two"></span><img src="/assets/characters/aegis.png" alt="" /><span class="visual-label">AEGIS <small>RARE MOBILE</small></span></div>
+        </div>
+      </section>
+
+      <section id="mobiles" class="section roster" aria-labelledby="mobiles-title">
+        <div class="section-heading"><div><p class="overline">01 / MOBILE INDEX</p><h2 id="mobiles-title">คลัง Mobile</h2><p>แต่ละคันมี DEF พื้นฐาน 1 หรือ 2 · เพิ่มได้ด้วยของสวมใส่</p></div><span class="section-rule" aria-hidden="true"></span></div>
+        <div class="roster-tools"><div class="filters" role="group" aria-label="กรองประเภท Mobile"><button type="button" class="filter is-active" data-filter="all" aria-pressed="true">ทั้งหมด</button><button type="button" class="filter" data-filter="terrain" aria-pressed="false">สายขุดพื้น</button><button type="button" class="filter" data-filter="wind" aria-pressed="false">สายลม</button><button type="button" class="filter" data-filter="rare" aria-pressed="false">หายาก</button></div><label class="sort-label">เรียงตาม <select id="mobile-sort"><option value="default">ลำดับในเกม</option><option value="damage">ดาเมจปกติ</option><option value="special">ดาเมจท่าพิเศษ</option><option value="hp">HP สูงสุด</option></select></label></div>
+        <p id="result-count" class="result-count" role="status">11 คัน</p>
+        <div id="mobile-grid" class="mobile-grid"></div>
+        <p class="roster-note">Manta และ Kestrel ยิงกระสุนย่อย 2 ลูกหลังชนพื้น หรือ 3 ลูกเมื่อใช้ท่าพิเศษ ตัวเลขดาเมจเป็น <b>ต่อกระสุนหนึ่งลูก</b> ไม่ใช่ดาเมจรวมที่รับประกัน กระสุนยิงโดนกรอบรถขนาดเท่ากันทุกคันได้โดยตรง และยิงทำลายไอเทมบนพื้นได้</p>
+      </section>
+
+      <section id="combat" class="section mechanics" aria-labelledby="combat-title"><div class="section-heading"><div><p class="overline">02 / COMBAT NOTES</p><h2 id="combat-title">ตัวเลขที่ต้องรู้</h2><p>ดาเมจจริงขึ้นกับระยะ ของสวมใส่ ลม และแถบสภาพอากาศ</p></div><span class="section-rule" aria-hidden="true"></span></div>
+        <div class="mechanic-grid">
+          <article class="mechanic-card"><span class="mechanic-number">01</span><h3>ดาเมจเมื่อโดน</h3><p>เริ่มจากค่า DMG ของรถ บวก ATK ของสวมใส่และโบนัสสายลม จากนั้นคูณ ×2 หากเปิดไอเทม และลดตามระยะจากจุดระเบิด</p><strong>ที่ขอบระเบิดยังเหลืออย่างน้อย 35%</strong></article>
+          <article class="mechanic-card"><span class="mechanic-number">02</span><h3>DEF และ HP</h3><p>รถมี DEF พื้นฐาน 1–2 ชุดป้องกันเพิ่มชิ้นละ 5 และหักจากดาเมจทุกลูก ชุดเลือดเพิ่ม HP สูงสุดชิ้นละ 5</p><strong>Aegis เริ่ม HP 150 · คันอื่น 100</strong></article>
+          <article class="mechanic-card"><span class="mechanic-number">03</span><h3>ชุดทองพิเศษ</h3><p>เมื่อสุ่มของสวมใส่ แต่ละช่องมีโอกาส 5% ได้ชุดทอง ชิ้นหนึ่งเพิ่ม ATK, DEF และ HP สูงสุดอย่างละ 3</p><strong>หมวก · เกราะ · ธง ผสมชุดได้</strong></article>
+          <article class="mechanic-card"><span class="mechanic-number">04</span><h3>แถบสภาพอากาศ</h3><p>สายฟ้าเพิ่มดาเมจ +5 เมื่อยิงผ่าน พายุเพิ่มแรงลมอีก 2 หน่วยหลังผ่าน ฝนทำให้รถที่โดนใช้ไอเทมไม่ได้ในเทิร์นถัดไป</p><strong>ต้องยิงผ่านแถบก่อนจึงเกิดผล</strong></article>
+        </div>
+        <div class="formula"><span>สูตรดาเมจโดยย่อ</span><code>round((DMG + ATK + โบนัสลม) × ไอเทม × ระยะ) − DEF + สายฟ้า</code><small>ผลลัพธ์ต่ำสุดคือ 0 และไม่เกิน HP ที่เหลือของเป้าหมาย</small></div>
+      </section>
+
+      <section class="closing"><p class="overline">READY TO PLAY?</p><h2>เลือกคันที่ใช่ แล้วไปลองยิงจริง</h2><p>ค่าสถานะในหน้านี้อ้างอิงกติกาเกมเวอร์ชันปัจจุบัน ลองเลือกคันที่ชอบแล้วทดสอบในห้องฝึกยิงได้เลย</p><a class="button button-primary" href="/">กลับไปหน้าเกม <span aria-hidden="true">↗</span></a></section>
+    </main>
+    <footer><span>SKYWARD SALVAGE · MOBILE FIELD GUIDE</span><a href="#hero-title">กลับขึ้นด้านบน ↑</a></footer>
+  </body>
+</html>

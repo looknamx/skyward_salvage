@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import WebSocket from 'ws';
 import type { ServerEvent } from '../shared/game.ts';
-import { fireTeleport } from '../shared/game.ts';
+import { EQUIPMENT_SETS, fireTeleport, maxHpFor } from '../shared/game.ts';
 
 const port = 34000 + Math.floor(Math.random() * 10000);
 const child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
@@ -66,9 +66,12 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         assert.equal(rolled.state.players[2].mobile, 'borer');
         assert.equal(rolled.state.players[2].hp, 100);
         clients[2].send({ type: 'random-mobile' });
-        await clients[2].waitFor(e => e.type === 'error' && /ครั้งเดียว/.test(e.message));
+        await clients[2].waitFor(e => e.type === 'state' && e.state.players[2].randomUsed);
         clients[2].send({ type: 'select', mobile: 'loom' });
-        await clients[2].waitFor(e => e.type === 'error' && /ไม่สามารถเปลี่ยนคันได้/.test(e.message));
+        const unselected = await clients[2].waitFor(e => e.type === 'state' && !e.state.players[2].randomUsed && e.state.players[2].mobile === 'loom');
+        assert.equal(unselected.type, 'state');
+        clients[2].send({ type: 'random-mobile' });
+        await clients[2].waitFor(e => e.type === 'state' && e.state.players[2].randomUsed && e.state.players[2].mobile === 'loom');
       }
       if (count === 4) {
         host.send({ type: 'set-mode', mode: 'teams' });
@@ -128,6 +131,8 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
       }
       const damageShots = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'shot')));
       assert.deepEqual(damageShots, Array(count).fill(damageShots[0]));
+      assert.equal(damageShots[0].type === 'shot' && damageShots[0].shot.mobile, 'bramble');
+      assert.equal(damageShots[0].type === 'shot' && damageShots[0].shot.shooterId, welcome.id);
       if (count === 2) assert.equal(damageShots[0].type === 'shot' && damageShots[0].shot.special, true);
       const next = await Promise.all(clients.map(client => client.waitFor(e => e.type === 'state' && e.state.turn === 2)));
       for (const event of next) {
@@ -176,6 +181,52 @@ test('real WebSocket rooms play with 2, 3, and 4 clients', { timeout: 30_000 }, 
         resumedClient.close();
       }
       clients.forEach(client => client.close());
+    }
+    // Pending random equipment stays private, resolves once, and is identical for 2–4 peers.
+    for (const count of [2, 3, 4]) {
+      const peers = Array.from({ length: count }, () => new Client());
+      await Promise.all(peers.map(peer => peer.open()));
+      peers[0].send({ type: 'create', name: 'Wind Host', mobile: 'gale' });
+      const welcome = await peers[0].waitFor(e => e.type === 'welcome');
+      assert.equal(welcome.type, 'welcome');
+      for (const peer of peers.slice(1)) {
+        peer.send({ type: 'join', code: welcome.code, name: 'Wind Guest', mobile: 'tempest' });
+        await peer.waitFor(e => e.type === 'welcome');
+      }
+      for (const peer of peers) {
+        for (const slot of ['hat', 'armor', 'flag']) peer.send({ type: 'random-equipment', slot });
+        const pending = await peer.waitFor(e => e.type === 'state' && e.state.players.some(p => p.randomEquipment.hat && p.randomEquipment.armor && p.randomEquipment.flag));
+        assert.equal(pending.type, 'state');
+        const self = pending.state.players.find(p => p.randomEquipment.flag)!;
+        assert.deepEqual(self.equipment, { hat: null, armor: null, flag: null });
+        assert.ok(pending.state.players.filter(p => p.id !== self.id).every(p => !Object.values(p.randomEquipment).some(Boolean)));
+      }
+      peers[1].send({ type: 'equip', slot: 'flag', set: 'defense' });
+      await peers[1].waitFor(e => e.type === 'state' && e.state.players[1].equipment.flag === 'defense' && !e.state.players[1].randomEquipment.flag);
+      peers[0].send({ type: 'random-equipment', slot: 'invalid' });
+      await peers[0].waitFor(e => e.type === 'error' && /ช่อง/.test(e.message));
+      peers[0].send({ type: 'equip', slot: 'hat', set: 'gold' });
+      await peers[0].waitFor(e => e.type === 'error' && /ไม่ถูกต้อง/.test(e.message));
+      for (const peer of peers.slice(1)) peer.send({ type: 'lobby-ready', ready: true });
+      const locked = await peers[0].waitFor(e => e.type === 'state' && e.state.lobbyReady.length === count - 1);
+      assert.equal(locked.type, 'state');
+      assert.deepEqual(locked.state.players[1].equipment, { hat: null, armor: null, flag: null });
+      peers[1].send({ type: 'random-equipment', slot: 'flag' });
+      await peers[1].waitFor(e => e.type === 'error' && /ยกเลิกพร้อม/.test(e.message));
+      peers[0].send({ type: 'start' });
+      const resolved = await Promise.all(peers.map(peer => peer.waitFor(e => e.type === 'state' && e.state.phase === 'playing')));
+      assert.deepEqual(resolved, Array(count).fill(resolved[0]));
+      assert.equal(resolved[0].type, 'state');
+      assert.equal(resolved[0].state.players[0].mobile, 'gale');
+      assert.equal(resolved[0].state.players[1].mobile, 'tempest');
+      assert.equal(resolved[0].state.players[1].equipment.flag, 'defense');
+      for (const player of resolved[0].state.players) {
+        assert.ok(Object.values(player.equipment).every(set => set !== null && (set === 'gold' || EQUIPMENT_SETS.includes(set))));
+        assert.equal(player.hp, maxHpFor(player));
+      }
+      peers[0].send({ type: 'random-equipment', slot: 'hat' });
+      await peers[0].waitFor(e => e.type === 'error' && /ห้องเตรียมเกม/.test(e.message));
+      peers.forEach(peer => peer.close());
     }
     // Verify the extra turn and subsequent handoff are identical for every peer.
     for (const count of [2, 3, 4]) {

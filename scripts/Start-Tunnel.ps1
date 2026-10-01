@@ -3,6 +3,15 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $runtimeDir = Join-Path $projectRoot '.tunnel'
 $stateFile = Join-Path $runtimeDir 'state.json'
+$namedFile = Join-Path $runtimeDir 'named-tunnel.json'
+$namedConfig = Join-Path $runtimeDir 'named-tunnel.yml'
+$named = $null
+if (Test-Path -LiteralPath $namedFile) {
+    $named = Get-Content -LiteralPath $namedFile -Raw | ConvertFrom-Json
+    if (!$PSBoundParameters.ContainsKey('Port')) { $Port = [int]$named.port }
+    if ($Port -ne [int]$named.port) { throw 'Named tunnel port differs. Run Setup-NamedTunnel.ps1 again with the desired -Port.' }
+    if (!(Test-Path -LiteralPath $namedConfig)) { throw 'Named tunnel configuration is missing. Run Setup-NamedTunnel.ps1 again.' }
+}
 
 if (Test-Path -LiteralPath $stateFile) {
     $previous = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
@@ -41,14 +50,26 @@ try {
         Start-Sleep -Milliseconds 500
     }
     if (!$healthy) { throw 'Game server did not start. Check .tunnel\server.err.log and run Stop-Tunnel.ps1.' }
-    $tunnel = Start-Process -FilePath $tunnelPath -ArgumentList 'tunnel', '--no-autoupdate', '--url', "http://127.0.0.1:$Port" -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $runtimeDir 'tunnel.out.log') -RedirectStandardError (Join-Path $runtimeDir 'tunnel.err.log') -PassThru
+    $tunnelArgs = @('tunnel', '--no-autoupdate', '--url', "http://127.0.0.1:$Port")
+    if ($named) {
+        & $tunnelPath tunnel --config $namedConfig ingress validate
+        if ($LASTEXITCODE -ne 0) { throw 'Named tunnel configuration is invalid. Run Stop-Tunnel.ps1 and correct the configuration.' }
+        $tunnelArgs = @('tunnel', '--no-autoupdate', '--config', ('"' + $namedConfig + '"'), 'run', [string]$named.id)
+    }
+    $tunnel = Start-Process -FilePath $tunnelPath -ArgumentList $tunnelArgs -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $runtimeDir 'tunnel.out.log') -RedirectStandardError (Join-Path $runtimeDir 'tunnel.err.log') -PassThru
     $state.tunnelPid=$tunnel.Id
     $state.tunnelStart=$tunnel.StartTime.ToUniversalTime().Ticks.ToString()
     $state | ConvertTo-Json | Set-Content -LiteralPath $stateFile
     for ($i=0; $i -lt 90; $i++) {
         $log = [string](Get-Content -LiteralPath (Join-Path $runtimeDir 'tunnel.err.log') -Raw -ErrorAction SilentlyContinue) + [string](Get-Content -LiteralPath (Join-Path $runtimeDir 'tunnel.out.log') -Raw -ErrorAction SilentlyContinue)
-        if ($log -match 'https://[a-z0-9-]+\.trycloudflare\.com') {
-            $state.url=$Matches[0]
+        $tunnel.Refresh()
+        if ($tunnel.HasExited) { throw 'Cloudflare tunnel exited. Check .tunnel\tunnel.err.log and run Stop-Tunnel.ps1.' }
+        $detectedUrl = ''
+        if ($named) {
+            if ($log -match 'Registered tunnel connection') { $detectedUrl = "https://$($named.hostname)" }
+        } elseif ($log -match 'https://[a-z0-9-]+\.trycloudflare\.com') { $detectedUrl = $Matches[0] }
+        if ($detectedUrl) {
+            $state.url=$detectedUrl
             $state | ConvertTo-Json | Set-Content -LiteralPath $stateFile
             $state.url | Set-Content -LiteralPath (Join-Path $runtimeDir 'url.txt')
             Write-Host "Share this game URL: $($state.url)"
